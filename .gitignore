@@ -1,0 +1,32 @@
+# OS
+.DS_Store/
+thumbs.db
+
+# IDE
+.vscode/
+.vs/
+.idea/
+*.iml
+*.log
+
+# Rust
+target/
+
+# Node
+node_modules/
+dist/
+*.node
+*.wasm
+
+# Local npm 2FA (never commit)
+.env.placeholder.local
+.env*.local
+
+# Nifty local cache
+.cache/
+
+# VMZ
+packages/open-zipper-ui/.cache/
+
+# Build staging
+packages/open-zipper/dist/
