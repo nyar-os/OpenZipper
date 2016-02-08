@@ -1,0 +1,36 @@
+//! OpenZipper archive engine.
+//!
+//! All archive parsing, validation, extraction and creation happens in this
+//! crate. Hosts (N-API, CLI and GUI) only pass paths and options in and out.
+//! Archive tools are never invoked as child processes and no shell pipeline is
+//! used for archive work.
+
+pub mod create;
+pub mod encoding;
+pub mod error;
+pub mod extract;
+pub mod format;
+pub mod limits;
+pub mod list;
+pub mod model;
+pub mod platform;
+pub mod safety;
+pub mod test;
+
+mod fs_util;
+mod io_util;
+mod tar_codec;
+mod zip_codec;
+
+pub use create::create;
+pub use error::{CapabilityState, Error, ErrorCode, Result};
+pub use extract::extract;
+pub use format::ArchiveFormat;
+pub use limits::ArchiveLimits;
+pub use list::list;
+pub use model::{
+    ArchiveListing, CreateOptions, CreateReport, EntryInfo, EntryKind, ExtractAction, ExtractOptions, ExtractOutcome, ExtractReport,
+    OverwritePolicy, TestReport,
+};
+pub use platform::{Capabilities, CapabilityEntry, Platform, capabilities};
+pub use test::test;
