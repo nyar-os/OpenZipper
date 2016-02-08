@@ -1,0 +1,34 @@
+{
+    "cli": {
+        "intro": "OpenZipper — list, extract, create and verify zip and tar archives, entirely in-process.",
+        "cmd": {
+            "extract": "Extract an archive after path-safety and bomb checks",
+            "create": "Create a zip or tar archive from files and folders",
+            "list": "List archive entries with safety annotations",
+            "test": "Verify that every entry can be read back",
+            "capabilities": "Print per-platform capability availability",
+            "audit": "Print the append-only capability audit history",
+            "gui": "Open the GUI window",
+            "version": "Print the package version"
+        },
+        "opt": {
+            "json": "Print machine-readable JSON",
+            "dest": "Destination directory for extracted files",
+            "overwrite": "Existing-file policy: error (default), skip or rename",
+            "dryRun": "Validate the archive and report the planned writes without touching the filesystem",
+            "recurse": "Extract nested archives into `<file>.extracted` up to the depth limit",
+            "out": "Archive path written by `create`",
+            "format": "Archive format: zip, tar, tar-gz, tar-bz2 or tar-xz (inferred from the extension)",
+            "force": "Replace an existing archive output",
+            "limit": "Max entries printed in human output",
+            "auditLimit": "Max audit records to print",
+            "title": "GUI window title",
+            "contentDir": "GUI content folder containing index.html",
+            "actor": "Actor id recorded for every capability call (default: WAE_ACTOR_ID)",
+            "actorKind": "Actor kind: user or agent (default: WAE_ACTOR_KIND)",
+            "actorSource": "Actor entry point, for example cli, gui, plugin (default: cli)",
+            "actorFilter": "Only show audit records for this actor id",
+            "capability": "Only show audit records for this capability name"
+        }
+    }
+}

@@ -1,0 +1,52 @@
+{
+    "name": "@wae/open-zipper",
+    "version": "0.0.0",
+    "description": "List, extract, create and verify zip and tar archives in-process, with an audited native core",
+    "type": "module",
+    "license": "Apache-2.0",
+    "bin": {
+        "open-zipper": "dist/cli.js"
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "locales",
+        "README.md",
+        "License.md"
+    ],
+    "engines": {
+        "node": ">=20"
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "typecheck": "tsc -p tsconfig.json --noEmit"
+    },
+    "dependencies": {
+        "@wae/commander": "^0.0.3"
+    },
+    "optionalDependencies": {
+        "@wae/open-zipper-darwin-arm64": "workspace:*",
+        "@wae/open-zipper-darwin-x64": "workspace:*",
+        "@wae/open-zipper-linux-arm64": "workspace:*",
+        "@wae/open-zipper-linux-x64": "workspace:*",
+        "@wae/open-zipper-win32-x64": "workspace:*"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/nyar-os/OpenZipper.git",
+        "directory": "packages/open-zipper"
+    },
+    "keywords": [
+        "archive",
+        "zip",
+        "tar",
+        "wae"
+    ]
+}

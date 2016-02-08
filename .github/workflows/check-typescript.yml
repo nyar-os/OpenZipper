@@ -1,0 +1,36 @@
+name: check-typescript
+
+on:
+  push:
+    branches: [dev, master]
+  pull_request:
+
+jobs:
+  check-typescript:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: pnpm
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build native addon
+        run: pnpm run build:napi
+      - name: Type check
+        run: pnpm --filter @wae/open-zipper run typecheck
+      - name: Build TS
+        run: pnpm run build:ts
+      - name: Build UI
+        run: pnpm run build:ui
+      - name: CLI smoke
+        run: pnpm --filter @wae/open-zipper exec node ./dist/cli.js version
+      - name: Check agent skills
+        run: pnpm run check:skills

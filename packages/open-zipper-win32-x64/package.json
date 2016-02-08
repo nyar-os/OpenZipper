@@ -1,0 +1,14 @@
+{
+    "name": "@wae/open-zipper-win32-x64",
+    "version": "0.0.0",
+    "description": "Native OpenZipper addon for Windows x64",
+    "type": "module",
+    "license": "Apache-2.0",
+    "os": ["win32"],
+    "cpu": ["x64"],
+    "main": "open-zipper.win32-x64.node",
+    "files": ["open-zipper.win32-x64.node"],
+    "engines": {
+        "node": ">=20"
+    }
+}

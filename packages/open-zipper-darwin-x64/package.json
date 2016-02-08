@@ -1,0 +1,14 @@
+{
+    "name": "@wae/open-zipper-darwin-x64",
+    "version": "0.0.0",
+    "description": "Native OpenZipper addon for macOS x64",
+    "type": "module",
+    "license": "Apache-2.0",
+    "os": ["darwin"],
+    "cpu": ["x64"],
+    "main": "open-zipper.darwin-x64.node",
+    "files": ["open-zipper.darwin-x64.node"],
+    "engines": {
+        "node": ">=20"
+    }
+}

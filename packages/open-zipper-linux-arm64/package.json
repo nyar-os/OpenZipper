@@ -1,0 +1,14 @@
+{
+    "name": "@wae/open-zipper-linux-arm64",
+    "version": "0.0.0",
+    "description": "Native OpenZipper addon for Linux arm64",
+    "type": "module",
+    "license": "Apache-2.0",
+    "os": ["linux"],
+    "cpu": ["arm64"],
+    "main": "open-zipper.linux-arm64.node",
+    "files": ["open-zipper.linux-arm64.node"],
+    "engines": {
+        "node": ">=20"
+    }
+}

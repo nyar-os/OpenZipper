@@ -1,0 +1,21 @@
+{
+    "name": "@wae/open-zipper-skills",
+    "version": "0.0.0",
+    "description": "Agent skills for OpenZipper",
+    "type": "module",
+    "license": "Apache-2.0",
+    "files": [
+        "skills",
+        "License.md",
+        "readme.md"
+    ],
+    "engines": {
+        "node": ">=20"
+    },
+    "keywords": [
+        "agent",
+        "skill",
+        "archive",
+        "wae"
+    ]
+}

@@ -1,0 +1,591 @@
+<template>
+    <div data-open-zipper="root" class="oz-root" data-theme="dark">
+        <AppShell brand="OpenZipper" homeHref="/" navLabel="Navigation" activeId="archive" :nav="navItems">
+            <div class="vmz-slot-content oz-body">
+                <header class="oz-head">
+                    <h1>
+                        {{ title }}
+                    </h1>
+                    <p>
+                        {{ lead }}
+                    </p>
+                </header>
+                <Card :title="openCardTitle" :description="openCardDesc">
+                    <Field
+                        :label="archiveLabel"
+                        :description="archiveDesc"
+                        controlId="oz-archive"
+                        descriptionId="oz-archive-desc"
+                        errorId="oz-archive-err"
+                        describedBy="oz-archive-desc"
+                        :value="archivePath"
+                        :placeholder="archivePlaceholder"
+                        @input="onArchiveInput"
+                    />
+                    <Field
+                        :label="destinationLabel"
+                        :description="destinationDesc"
+                        controlId="oz-destination"
+                        descriptionId="oz-destination-desc"
+                        errorId="oz-destination-err"
+                        describedBy="oz-destination-desc"
+                        :value="destination"
+                        :placeholder="destinationPlaceholder"
+                        @input="onDestinationInput"
+                    />
+                    <div class="oz-policy">
+                        <p class="oz-policy__label">
+                            {{ policyLabel }}
+                        </p>
+                        <div class="oz-policy__options">
+                            <Button
+                                v-for="option in policyOptions"
+                                :key="option.value"
+                                type="button"
+                                size="small"
+                                :variant="option.value === overwrite ? 'primary' : 'secondary'"
+                                @click="(() => selectPolicy(option.value))"
+                            >
+                                {{ option.label }}
+                            </Button>
+                        </div>
+                        <p class="oz-policy__hint">
+                            {{ policyHint }}
+                        </p>
+                    </div>
+                    <div class="oz-toggles">
+                        <Checkbox :label="dryRunLabel" controlId="oz-dry-run" :checked="dryRun" @change="onDryRunChange" />
+                        <Checkbox :label="recurseLabel" controlId="oz-recurse" :checked="recurse" @change="onRecurseChange" />
+                    </div>
+                    <div class="oz-actions">
+                        <Button type="button" variant="secondary" :loading="listing" :disabled="working" @click="refreshListing">
+                            {{ listLabel }}
+                        </Button>
+                        <Button type="button" :loading="extracting" :disabled="working" @click="startExtract">
+                            {{ extractLabel }}
+                        </Button>
+                        <Button type="button" variant="secondary" @click="requestClose">
+                            {{ closeLabel }}
+                        </Button>
+                    </div>
+                    <Alert v-if="error" tone="danger" roleName="alert" :title="errorTitle" :description="error" />
+                    <Alert v-else-if="status" tone="info" roleName="status" :title="statusTitle" :description="status" />
+                </Card>
+                <Card :title="entriesCardTitle" :description="entriesCardDesc">
+                    <div v-if="working" class="oz-progress">
+                        <Spinner :label="loadingLabel" />
+                        <span class="oz-progress__text">
+                            {{ progressText }}
+                        </span>
+                        <Progress :percent="progressPercent" :showInfo="true" />
+                    </div>
+                    <div class="oz-stats">
+                        <div class="oz-stat">
+                            <div class="oz-stat__label">
+                                {{ entryCountLabel }}
+                            </div>
+                            <div class="oz-stat__value">
+                                {{ entryCountText }}
+                            </div>
+                        </div>
+                        <div class="oz-stat">
+                            <div class="oz-stat__label">
+                                {{ totalSizeLabel }}
+                            </div>
+                            <div class="oz-stat__value">
+                                {{ totalSizeText }}
+                            </div>
+                        </div>
+                        <div class="oz-stat">
+                            <div class="oz-stat__label">
+                                {{ unsafeCountLabel }}
+                            </div>
+                            <div class="oz-stat__value">
+                                {{ unsafeCountText }}
+                            </div>
+                        </div>
+                        <div class="oz-stat">
+                            <div class="oz-stat__label">
+                                {{ formatLabel }}
+                            </div>
+                            <div class="oz-stat__value">
+                                {{ formatText }}
+                            </div>
+                        </div>
+                    </div>
+                    <Empty v-if="!entryRows.length && !working" :title="emptyTitle" :description="emptyDesc" />
+                    <Table
+                        v-else
+                        :columns="entryColumns"
+                        :rows="entryRows"
+                        :loading="listing"
+                        :loadingLabel="loadingLabel"
+                        :loadingText="loadingText"
+                        :hasRowAction="false"
+                    />
+                </Card>
+                <Card :title="resultCardTitle" :description="resultCardDesc">
+                    <div class="oz-stats">
+                        <div class="oz-stat">
+                            <div class="oz-stat__label">
+                                {{ writtenLabel }}
+                            </div>
+                            <div class="oz-stat__value">
+                                {{ writtenText }}
+                            </div>
+                        </div>
+                        <div class="oz-stat">
+                            <div class="oz-stat__label">
+                                {{ directoriesLabel }}
+                            </div>
+                            <div class="oz-stat__value">
+                                {{ directoriesText }}
+                            </div>
+                        </div>
+                        <div class="oz-stat">
+                            <div class="oz-stat__label">
+                                {{ bytesLabel }}
+                            </div>
+                            <div class="oz-stat__value">
+                                {{ bytesText }}
+                            </div>
+                        </div>
+                        <div class="oz-stat">
+                            <div class="oz-stat__label">
+                                {{ collisionLabel }}
+                            </div>
+                            <div class="oz-stat__value">
+                                {{ collisionText }}
+                            </div>
+                        </div>
+                    </div>
+                    <p v-if="nestedLine" class="oz-note">
+                        {{ nestedLine }}
+                    </p>
+                    <Empty v-if="!resultRows.length && !working" :title="resultEmptyTitle" :description="resultEmptyDesc" />
+                    <Table v-else :columns="resultColumns" :rows="resultRows" :hasRowAction="false" />
+                </Card>
+                <Card :title="capabilitiesCardTitle" :description="capabilitiesCardDesc">
+                    <Table
+                        :columns="capabilityColumns"
+                        :rows="capabilityRows"
+                        :loading="loadingCapabilities"
+                        :loadingLabel="loadingLabel"
+                        :loadingText="loadingText"
+                        :hasRowAction="false"
+                    />
+                </Card>
+            </div>
+        </AppShell>
+    </div>
+</template>
+<style>
+.oz-root {
+    min-height: 100vh;
+}
+.oz-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vmz-space-4, 1rem);
+    width: min(var(--vmz-layout-max-width, 80rem), calc(100% - (var(--vmz-layout-gutter, 1rem) * 2)));
+    margin: 0 auto;
+}
+.oz-head h1 {
+    margin: 0 0 0.35rem;
+    font-size: 1.35rem;
+}
+.oz-head p {
+    margin: 0;
+    color: var(--vmz-text-steel, var(--vmz-text-muted, #8b93a7));
+}
+.oz-policy {
+    margin-top: var(--vmz-space-3, 0.75rem);
+}
+.oz-policy__label {
+    margin: 0 0 var(--vmz-space-2, 0.5rem);
+    font-weight: 500;
+    font-size: 0.875rem;
+}
+.oz-policy__options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--vmz-space-2, 0.5rem);
+}
+.oz-policy__hint {
+    margin: var(--vmz-space-2, 0.5rem) 0 0;
+    color: var(--vmz-text-steel, #8b93a7);
+    font-size: 0.875rem;
+}
+.oz-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--vmz-space-4, 1rem);
+    margin-top: var(--vmz-space-3, 0.75rem);
+}
+.oz-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--vmz-space-2, 0.5rem);
+    margin-top: var(--vmz-space-3, 0.75rem);
+}
+.oz-progress {
+    display: grid;
+    gap: var(--vmz-space-2, 0.5rem);
+    margin-bottom: var(--vmz-space-4, 1rem);
+}
+.oz-progress__text {
+    color: var(--vmz-text-steel, #8b93a7);
+    font-size: 0.875rem;
+}
+.oz-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--vmz-space-3, 0.75rem);
+    margin-bottom: var(--vmz-space-4, 1rem);
+}
+.oz-stat {
+    padding: var(--vmz-space-3, 0.75rem);
+    border: 1px solid var(--vmz-line-default, #2a3140);
+    border-radius: var(--vmz-radius-md, 8px);
+    background: var(--vmz-surface-mist, var(--vmz-surface-paper, #1a1e27));
+}
+.oz-stat__label {
+    color: var(--vmz-text-steel, #8b93a7);
+    font-size: 0.75rem;
+}
+.oz-stat__value {
+    margin-top: 0.25rem;
+    font-variant-numeric: tabular-nums;
+    font-size: 1.1rem;
+}
+.oz-note {
+    margin: 0;
+    color: var(--vmz-text-steel, #8b93a7);
+}
+@media (max-width: 900px) {
+    .oz-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+@media (max-width: 560px) {
+    .oz-stats {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+<script client>
+export default class IndexPage {
+    title = "OpenZipper";
+    lead = "Inspect, extract and verify zip and tar archives. Path safety and bomb guards run before anything is written.";
+    navItems = [{ id: "archive", title: "Archive", href: "/" }];
+    openCardTitle = "Archive";
+    openCardDesc = "Choose an archive, a destination directory and how existing files are handled.";
+    archiveLabel = "Archive file";
+    archiveDesc = "Absolute path to a .zip, .tar, .tar.gz, .tar.bz2 or .tar.xz file.";
+    archivePlaceholder = "C:\\Downloads\\example.zip";
+    destinationLabel = "Destination directory";
+    destinationDesc = "Files are written below this directory only. Parent traversal is rejected.";
+    destinationPlaceholder = "C:\\Downloads\\extracted";
+    policyLabel = "Existing files";
+    policyOptions = [
+        { value: "error", label: "Fail" },
+        { value: "skip", label: "Skip" },
+        { value: "rename", label: "Rename" },
+    ];
+    policyHint = "The default refuses to replace anything. Skip and rename must be chosen explicitly.";
+    dryRunLabel = "Preview only (dry run)";
+    recurseLabel = "Extract nested archives";
+    listLabel = "List entries";
+    extractLabel = "Extract";
+    closeLabel = "Close";
+    errorTitle = "Operation failed";
+    statusTitle = "Status";
+    entriesCardTitle = "Entries";
+    entriesCardDesc = "Member names, sizes and path-safety annotations.";
+    entryCountLabel = "Entries";
+    totalSizeLabel = "Uncompressed";
+    unsafeCountLabel = "Unsafe";
+    formatLabel = "Format";
+    emptyTitle = "No archive loaded";
+    emptyDesc = "List an archive to inspect its entries.";
+    loadingLabel = "Working";
+    loadingText = "Reading archive…";
+    resultCardTitle = "Extraction";
+    resultCardDesc = "What the last extraction wrote, skipped or renamed.";
+    writtenLabel = "Files";
+    directoriesLabel = "Directories";
+    bytesLabel = "Bytes written";
+    collisionLabel = "Skipped / renamed";
+    resultEmptyTitle = "Nothing extracted yet";
+    resultEmptyDesc = "Run an extraction to see per-entry results.";
+    capabilitiesCardTitle = "Capabilities";
+    capabilitiesCardDesc = "Formats, guards and platform-specific features on this host.";
+    entryColumns = [
+        { id: "index", title: "#", align: "right" },
+        { id: "name", title: "Name" },
+        { id: "kind", title: "Kind" },
+        { id: "size", title: "Size", align: "right" },
+        { id: "safety", title: "Safety" },
+    ];
+    resultColumns = [
+        { id: "action", title: "Action" },
+        { id: "name", title: "Entry" },
+        { id: "bytes", title: "Bytes", align: "right" },
+        { id: "renamed", title: "Renamed to" },
+    ];
+    capabilityColumns = [
+        { id: "capability", title: "Capability" },
+        { id: "state", title: "State" },
+        { id: "detail", title: "Detail" },
+    ];
+
+    archivePath = "";
+    destination = "";
+    overwrite = "error";
+    dryRun = false;
+    recurse = false;
+    working = false;
+    listing = false;
+    extracting = false;
+    loadingCapabilities = false;
+    error = "";
+    status = "Ready.";
+    progressPercent = 0;
+    progressText = "";
+    formatText = "—";
+    entryCountText = "—";
+    totalSizeText = "—";
+    unsafeCountText = "—";
+    writtenText = "—";
+    directoriesText = "—";
+    bytesText = "—";
+    collisionText = "—";
+    nestedLine = "";
+    entryRows = [];
+    resultRows = [];
+    capabilityRows = [];
+    _seq = 0;
+
+    onMount() {
+        this.installHostBridge();
+        if (this.bridge()) this.requestCapabilities();
+    }
+
+    bridge() {
+        const webview = globalThis.chrome && globalThis.chrome.webview;
+        return webview && webview.postMessage ? webview : null;
+    }
+
+    onArchiveInput(e) {
+        this.archivePath = e && e.target ? String(e.target.value || "") : "";
+    }
+
+    onDestinationInput(e) {
+        this.destination = e && e.target ? String(e.target.value || "") : "";
+    }
+
+    onDryRunChange(checked) {
+        this.dryRun = !!checked;
+    }
+
+    onRecurseChange(checked) {
+        this.recurse = !!checked;
+    }
+
+    selectPolicy(value) {
+        this.overwrite = String(value || "error");
+    }
+
+    installHostBridge() {
+        const webview = this.bridge();
+        if (!webview || !webview.addEventListener) return;
+        webview.addEventListener("message", (event) => {
+            let data = event.data;
+            if (typeof data === "string") {
+                try {
+                    data = JSON.parse(data);
+                } catch {
+                    return;
+                }
+            }
+            if (!data || typeof data !== "object") return;
+            if (data.type === "capabilitiesResult") {
+                this.applyCapabilities(data.capabilities || {});
+            } else if (data.type === "capabilitiesError") {
+                this.loadingCapabilities = false;
+                this.setError(String(data.message || "unknown error"));
+            } else if (data.type === "listResult") {
+                this.listing = false;
+                this.error = "";
+                this.applyListing(data.listing || {});
+                this.status = "Listing ready.";
+            } else if (data.type === "listError") {
+                this.listing = false;
+                this.setError(String(data.message || "unknown error"));
+            } else if (data.type === "extractResult") {
+                this.finishExtract(data.report || {});
+            } else if (data.type === "extractError") {
+                this.failExtract(String(data.message || "unknown error"));
+            }
+        });
+    }
+
+    setError(message) {
+        this.error = message;
+        this.status = "";
+        this.working = false;
+        this.progressText = "";
+    }
+
+    post(msg) {
+        const webview = this.bridge();
+        if (!webview) {
+            this.setError("Native bridge unavailable (not running inside the WebView2 host).");
+            return false;
+        }
+        webview.postMessage(JSON.stringify(msg));
+        return true;
+    }
+
+    validate() {
+        const archive = (this.archivePath || "").trim();
+        if (!archive) {
+            this.setError("Enter the path of an archive first.");
+            return null;
+        }
+        return archive;
+    }
+
+    requestCapabilities() {
+        this._seq += 1;
+        this.loadingCapabilities = true;
+        if (!this.post({ type: "capabilities", id: this._seq })) this.loadingCapabilities = false;
+    }
+
+    refreshListing() {
+        const archive = this.validate();
+        if (!archive) return;
+        this._seq += 1;
+        this.listing = true;
+        this.working = true;
+        this.progressPercent = 0;
+        this.progressText = "Reading the archive index…";
+        this.error = "";
+        this.status = "Reading archive…";
+        if (!this.post({ type: "list", id: this._seq, path: archive })) {
+            this.listing = false;
+            this.working = false;
+        }
+    }
+
+    startExtract() {
+        const archive = this.validate();
+        if (!archive) return;
+        const destination = (this.destination || "").trim();
+        if (!destination) {
+            this.setError("Enter a destination directory before extracting.");
+            return;
+        }
+        this._seq += 1;
+        this.extracting = true;
+        this.working = true;
+        this.progressPercent = 0;
+        this.progressText = this.dryRun
+            ? "Validating paths and limits without writing…"
+            : "Extracting, with path and bomb checks on every entry…";
+        this.error = "";
+        this.status = this.dryRun ? "Dry run in progress…" : "Extracting…";
+        this.resultRows = [];
+        if (!this.post({
+            type: "extract",
+            id: this._seq,
+            path: archive,
+            destination,
+            overwrite: this.overwrite,
+            dryRun: this.dryRun,
+            recurse: this.recurse,
+        })) {
+            this.extracting = false;
+            this.working = false;
+        }
+    }
+
+    finishExtract(report) {
+        this.extracting = false;
+        this.working = false;
+        this.progressPercent = 100;
+        this.progressText = "Completed.";
+        this.error = "";
+        const entries = Array.isArray(report.entries) ? report.entries : [];
+        this.writtenText = String(Number(report.written) || 0);
+        this.directoriesText = String(Number(report.directories) || 0);
+        this.bytesText = this.formatBytes(Number(report.bytesWritten) || 0);
+        this.collisionText = `${Number(report.skipped) || 0} / ${Number(report.renamed) || 0}`;
+        const nested = Number(report.nestedArchives) || 0;
+        this.nestedLine = nested > 0 ? `${nested} nested archive(s) extracted below the archive file.` : "";
+        this.resultRows = entries
+            .filter((entry) => entry.action !== "directory")
+            .map((entry, index) => ({
+                id: String(index),
+                cells: [
+                    String(entry.action || ""),
+                    String(entry.name || ""),
+                    this.formatBytes(Number(entry.bytesWritten) || 0),
+                    String(entry.renamedTo || ""),
+                ],
+            }));
+        this.status = report.dryRun ? "Dry run complete. Nothing was written." : "Extraction complete.";
+    }
+
+    failExtract(message) {
+        this.extracting = false;
+        this.working = false;
+        this.progressPercent = 0;
+        this.progressText = "";
+        this.setError(message);
+    }
+
+    applyListing(listing) {
+        this.formatText = String(listing.format || "—");
+        this.entryCountText = String(Number(listing.entryCount) || 0);
+        this.totalSizeText = this.formatBytes(Number(listing.totalSizeBytes) || 0);
+        this.unsafeCountText = String(Number(listing.unsafeEntryCount) || 0);
+        const entries = Array.isArray(listing.entries) ? listing.entries : [];
+        this.entryRows = entries.map((entry) => ({
+            id: String(entry.index),
+            cells: [
+                String(entry.index),
+                String(entry.name || ""),
+                String(entry.kind || ""),
+                this.formatBytes(Number(entry.sizeBytes) || 0),
+                entry.safe ? "safe" : `unsafe: ${entry.unsafeReason || "rejected"}`,
+            ],
+        }));
+    }
+
+    applyCapabilities(report) {
+        this.loadingCapabilities = false;
+        const entries = Array.isArray(report.entries) ? report.entries : [];
+        this.capabilityRows = entries.map((entry) => ({
+            id: String(entry.capability || ""),
+            cells: [
+                String(entry.capability || ""),
+                entry.available ? "available" : String(entry.code || "blocked"),
+                String(entry.detail || ""),
+            ],
+        }));
+        this.status = `Host ${report.platform || "unknown"}-${report.architecture || "unknown"}.`;
+    }
+
+    requestClose() {
+        this.post({ type: "close" });
+    }
+
+    formatBytes(n) {
+        if (n < 1024) return `${n} B`;
+        if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`;
+        if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`;
+        return `${(n / 1024 ** 3).toFixed(2)} GB`;
+    }
+}
+</script>
