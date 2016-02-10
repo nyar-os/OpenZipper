@@ -38,6 +38,7 @@ fn absolute_and_drive_paths_are_rejected() {
     assert_rejected(&base, "\\\\server\\share\\owned.txt", "unc");
 }
 
+#[cfg(windows)]
 #[test]
 fn windows_normalization_bypasses_are_rejected() {
     let base = TempDir::new("zip-slip-windows");
@@ -46,6 +47,19 @@ fn windows_normalization_bypasses_are_rejected() {
     assert_rejected(&base, "CON", "device");
     assert_rejected(&base, "COM1/owned.txt", "device-com1");
     assert_rejected(&base, "docs/owned.txt:stream", "ads");
+}
+
+/// Trailing dots, spaces, device names and colons are ordinary file names on
+/// POSIX hosts, so the guard must not over-block them there.
+#[cfg(not(windows))]
+#[test]
+fn posix_hosts_accept_names_that_only_windows_normalizes() {
+    let base = TempDir::new("zip-slip-posix");
+    for (name, tag) in [("docs/owned.txt.", "trailing-dot"), ("docs/owned.txt ", "trailing-space"), ("CON", "device")] {
+        let archive = malicious_zip(&base, name, tag);
+        let destination = base.join(format!("out-{tag}"));
+        extract(&archive, &ExtractOptions::new(&destination)).expect("POSIX host keeps the name as written");
+    }
 }
 
 #[test]
@@ -59,6 +73,8 @@ fn symlink_entries_are_rejected() {
     assert!(!destination.join("ok.txt").exists(), "preflight must run before any write");
 }
 
+/// Only case-insensitive filesystems collapse these names into one file.
+#[cfg(windows)]
 #[test]
 fn case_insensitive_duplicates_are_rejected() {
     let base = TempDir::new("zip-slip-duplicate");
@@ -68,6 +84,19 @@ fn case_insensitive_duplicates_are_rejected() {
     let error = extract(&archive, &ExtractOptions::new(&destination)).expect_err("case collision must be rejected");
     assert_eq!(error.code(), "path_conflict");
     assert!(!destination.join("Docs/report.txt").exists());
+}
+
+#[cfg(not(windows))]
+#[test]
+fn case_distinct_names_are_not_treated_as_collisions() {
+    let base = TempDir::new("zip-slip-duplicate");
+    let archive = base.join("duplicate.zip");
+    write_zip(&archive, &[ZipFixtureEntry::file("Docs/report.txt", b"one"), ZipFixtureEntry::file("docs/report.txt", b"two")]);
+    let destination = base.join("out");
+    let report = extract(&archive, &ExtractOptions::new(&destination)).expect("case-sensitive host keeps both files");
+    assert_eq!(report.written, 2);
+    assert_eq!(common::read_file(&destination.join("Docs/report.txt")), b"one");
+    assert_eq!(common::read_file(&destination.join("docs/report.txt")), b"two");
 }
 
 #[test]
