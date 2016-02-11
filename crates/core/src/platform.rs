@@ -53,6 +53,14 @@ impl Platform {
             Self::Other => "other",
         }
     }
+
+    /// Whether the host's default volumes fold case. Windows does, and macOS
+    /// defaults to a case-insensitive APFS/HFS+ volume. Linux is treated as
+    /// case-sensitive. Duplicate entry keys follow this rule so a name pair
+    /// cannot collapse into one file after extraction.
+    pub fn case_insensitive_paths(self) -> bool {
+        matches!(self, Self::Windows | Self::Macos)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

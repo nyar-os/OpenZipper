@@ -13,7 +13,7 @@ use crate::{
 pub struct SafeEntryPath {
     pub components: Vec<String>,
     pub relative: PathBuf,
-    /// Key used for duplicate detection. Case-folded on Windows.
+    /// Key used for duplicate detection. Case-folded where the host filesystem folds case.
     pub normalized_key: String,
 }
 
@@ -82,7 +82,7 @@ pub fn validate_entry_path(name: &str, platform: Platform) -> Result<SafeEntryPa
         return Err(Error::coded(ErrorCode::ZipSlip, format!("archive entry `{name}` resolves to the destination root")));
     }
 
-    let normalized_key = if platform == Platform::Windows {
+    let normalized_key = if platform.case_insensitive_paths() {
         components.iter().map(|component| component.to_lowercase()).collect::<Vec<_>>().join("/")
     }
     else {

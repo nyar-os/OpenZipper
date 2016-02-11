@@ -73,8 +73,9 @@ fn symlink_entries_are_rejected() {
     assert!(!destination.join("ok.txt").exists(), "preflight must run before any write");
 }
 
-/// Only case-insensitive filesystems collapse these names into one file.
-#[cfg(windows)]
+/// Windows and default macOS volumes fold case, so these names would land in
+/// the same file.
+#[cfg(any(windows, target_os = "macos"))]
 #[test]
 fn case_insensitive_duplicates_are_rejected() {
     let base = TempDir::new("zip-slip-duplicate");
@@ -86,7 +87,7 @@ fn case_insensitive_duplicates_are_rejected() {
     assert!(!destination.join("Docs/report.txt").exists());
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 #[test]
 fn case_distinct_names_are_not_treated_as_collisions() {
     let base = TempDir::new("zip-slip-duplicate");
