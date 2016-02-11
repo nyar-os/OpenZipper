@@ -19,6 +19,7 @@ pub mod test;
 
 mod fs_util;
 mod io_util;
+mod sevenz_codec;
 mod tar_codec;
 mod zip_codec;
 

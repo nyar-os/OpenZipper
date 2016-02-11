@@ -100,8 +100,12 @@ function printListing(listing: ArchiveListing, limit: number): void {
     if (listing.unsafeEntryCount > 0) console.log(`unsafe entries: ${listing.unsafeEntryCount}`);
     for (const entry of listing.entries.slice(0, limit)) {
         const compressed = entry.compressedSizeBytes === undefined ? '' : ` (${formatBytes(entry.compressedSizeBytes)} stored)`;
+        const method = entry.compressionMethod === undefined ? '' : ` [${entry.compressionMethod}]`;
+        const modified = entry.modifiedAtUnixMs === undefined ? '' : ` ${new Date(entry.modifiedAtUnixMs).toISOString()}`;
         const unsafe = entry.safe ? '' : `  UNSAFE: ${entry.unsafeReason ?? 'rejected'}`;
-        console.log(`  ${String(entry.index).padStart(5)}  ${entry.kind.padEnd(9)}  ${String(entry.sizeBytes).padStart(10)}  ${entry.name}${compressed}${unsafe}`);
+        console.log(
+            `  ${String(entry.index).padStart(5)}  ${entry.kind.padEnd(9)}  ${String(entry.sizeBytes).padStart(10)}  ${entry.name}${compressed}${method}${modified}${unsafe}`,
+        );
     }
     if (listing.entries.length > limit) console.log(`  ... ${listing.entries.length - limit} more (use --limit or --json)`);
 }

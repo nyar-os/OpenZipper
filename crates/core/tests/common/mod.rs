@@ -183,6 +183,65 @@ pub fn write_raw_tar(path: &Path, entries: &[RawTarEntry]) {
     fs::write(path, output).expect("write raw tar");
 }
 
+pub struct SevenZFixtureEntry {
+    pub name: String,
+    pub data: Vec<u8>,
+    pub directory: bool,
+    pub attributes: Option<u32>,
+    pub modified: Option<u64>,
+}
+
+impl SevenZFixtureEntry {
+    pub fn file(name: impl Into<String>, data: impl Into<Vec<u8>>) -> Self {
+        Self { name: name.into(), data: data.into(), directory: false, attributes: None, modified: None }
+    }
+
+    pub fn directory(name: impl Into<String>) -> Self {
+        Self { name: name.into(), data: Vec::new(), directory: true, attributes: None, modified: None }
+    }
+
+    pub fn symlink(name: impl Into<String>, target: impl Into<String>) -> Self {
+        Self { name: name.into(), data: target.into().into_bytes(), directory: false, attributes: Some(0o120777 << 16), modified: None }
+    }
+
+    pub fn modified_at(mut self, file_time: u64) -> Self {
+        self.modified = Some(file_time);
+        self
+    }
+}
+
+/// Write a real 7z archive with hostile names or attributes intact.
+pub fn write_7z(path: &Path, entries: &[SevenZFixtureEntry], method: Option<sevenz_rust2::EncoderMethod>) {
+    use sevenz_rust2::{ArchiveEntry, ArchiveWriter, EncoderConfiguration};
+
+    let mut writer = ArchiveWriter::create(path).expect("create 7z");
+    writer.set_encrypt_header(false);
+    if let Some(method) = method {
+        writer.set_content_methods(vec![EncoderConfiguration::new(method)]);
+    }
+    for entry in entries {
+        let mut archive_entry = if entry.directory { ArchiveEntry::new_directory(&entry.name) } else { ArchiveEntry::new_file(&entry.name) };
+        if let Some(attributes) = entry.attributes {
+            archive_entry.has_windows_attributes = true;
+            archive_entry.windows_attributes = attributes;
+        }
+        if let Some(file_time) = entry.modified {
+            archive_entry.has_last_modified_date = true;
+            archive_entry.last_modified_date = sevenz_rust2::NtTime::new(file_time);
+        }
+        if entry.directory {
+            writer.push_archive_entry::<&[u8]>(archive_entry, None).expect("push 7z directory");
+        }
+        else {
+            writer.push_archive_entry(archive_entry, Some(entry.data.as_slice())).expect("push 7z file");
+        }
+    }
+    writer.finish().expect("finish 7z");
+}
+
+/// Unix file time for 2000-01-01T00:00:00Z, used to assert time metadata.
+pub const FILE_TIME_Y2K: u64 = 125_911_584_000_000_000;
+
 pub fn write_file(path: &Path, contents: &[u8]) {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).expect("create parent");

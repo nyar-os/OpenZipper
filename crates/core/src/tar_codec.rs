@@ -32,8 +32,8 @@ pub(crate) fn open(path: &Path, format: ArchiveFormat) -> Result<Archive<BoxedRe
         ArchiveFormat::TarGz => Box::new(GzDecoder::new(BufReader::new(file))),
         ArchiveFormat::TarBz2 => Box::new(BzDecoder::new(BufReader::new(file))),
         ArchiveFormat::TarXz => Box::new(XzDecoder::new(BufReader::new(file))),
-        ArchiveFormat::Zip => {
-            return Err(Error::coded(ErrorCode::InvalidOption, "zip is not a tar stream"));
+        ArchiveFormat::Zip | ArchiveFormat::SevenZ => {
+            return Err(Error::coded(ErrorCode::InvalidOption, format!("`{}` is not a tar stream", format.label())));
         }
     };
     Ok(Archive::new(reader))
@@ -53,6 +53,7 @@ pub(crate) fn inspect(path: &Path, format: ArchiveFormat, limits: &ArchiveLimits
         let name = decode_name(&entry.path_bytes());
         let kind = entry_kind(&entry);
         let size = entry.size();
+        let modified_at_unix_ms = entry.header().mtime().ok().map(|seconds| seconds as i64 * 1_000);
         total_declared = total_declared.saturating_add(if kind == EntryKind::Directory { 0 } else { size });
         limits.check_entry_count(index + 1)?;
         limits.check_declared_entry(&name, size, None, total_declared)?;
@@ -100,7 +101,17 @@ pub(crate) fn inspect(path: &Path, format: ArchiveFormat, limits: &ArchiveLimits
             limits.check_global_ratio(total_actual, archive_bytes)?;
         }
 
-        prepared.push(PreparedEntry { index, name, kind, size, compressed: None, safe, unsafe_reason });
+        prepared.push(PreparedEntry {
+            index,
+            name,
+            kind,
+            size,
+            compressed: None,
+            compression_method: Some("store".to_string()),
+            modified_at_unix_ms,
+            safe,
+            unsafe_reason,
+        });
     }
 
     Ok(prepared)

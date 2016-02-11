@@ -8,7 +8,7 @@ use crate::{
     format::{self, ArchiveFormat},
     model::{ExtractAction, ExtractOptions, ExtractOutcome, ExtractReport, OverwritePolicy},
     safety::{SafeEntryPath, join_destination},
-    tar_codec, zip_codec,
+    sevenz_codec, tar_codec, zip_codec,
 };
 
 #[derive(Debug, Default)]
@@ -117,6 +117,10 @@ fn extract_with_depth(path: &Path, format: ArchiveFormat, options: &ExtractOptio
         ArchiveFormat::Zip => {
             let entries = zip_codec::inspect(path, &options.limits, true)?;
             zip_codec::extract(path, &entries, options, &mut context, &mut report)?;
+        }
+        ArchiveFormat::SevenZ => {
+            let entries = sevenz_codec::inspect(path, &options.limits, true)?;
+            sevenz_codec::extract(path, &entries, options, &mut context, &mut report)?;
         }
         _ => {
             let entries = tar_codec::inspect(path, format, &options.limits, true)?;

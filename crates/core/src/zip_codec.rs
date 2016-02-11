@@ -24,6 +24,8 @@ pub(crate) struct PreparedEntry {
     pub kind: EntryKind,
     pub size: u64,
     pub compressed: Option<u64>,
+    pub compression_method: Option<String>,
+    pub modified_at_unix_ms: Option<i64>,
     pub safe: Option<SafeEntryPath>,
     pub unsafe_reason: Option<String>,
 }
@@ -73,6 +75,7 @@ pub(crate) fn inspect(path: &Path, limits: &ArchiveLimits, strict: bool) -> Resu
         };
         let size = entry.size();
         let compressed = Some(entry.compressed_size());
+        let compression_method = Some(entry.compression().to_string().to_ascii_lowercase());
         total = total.saturating_add(if kind == EntryKind::Directory { 0 } else { size });
         limits.check_declared_entry(&name, size, compressed, total)?;
 
@@ -106,7 +109,20 @@ pub(crate) fn inspect(path: &Path, limits: &ArchiveLimits, strict: bool) -> Resu
             }
         }
 
-        prepared.push(PreparedEntry { index, name, kind, size, compressed, safe, unsafe_reason });
+        prepared.push(PreparedEntry {
+            index,
+            name,
+            kind,
+            size,
+            compressed,
+            compression_method,
+            // Zip stores local wall-clock time without a timezone, so it cannot be
+            // turned into a correct absolute timestamp. Leave it unset instead of
+            // inventing an offset.
+            modified_at_unix_ms: None,
+            safe,
+            unsafe_reason,
+        });
     }
 
     Ok(prepared)

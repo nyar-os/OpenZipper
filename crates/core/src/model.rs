@@ -23,6 +23,10 @@ pub struct EntryInfo {
     pub size_bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compressed_size_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compression_method: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified_at_unix_ms: Option<i64>,
     pub safe: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unsafe_reason: Option<String>,

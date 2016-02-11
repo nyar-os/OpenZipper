@@ -9,7 +9,7 @@ const CHUNK: usize = 64 * 1024;
 
 /// Stream bytes while enforcing per-entry and archive-wide expansion limits.
 pub(crate) fn copy_limited(
-    reader: &mut impl Read,
+    reader: &mut (impl Read + ?Sized),
     writer: &mut impl Write,
     name: &str,
     limits: &ArchiveLimits,
@@ -35,7 +35,7 @@ pub(crate) fn copy_limited(
 /// Consume an entry without materializing it so streaming readers advance and
 /// declared limits are verified against actual bytes.
 pub(crate) fn drain_limited(
-    reader: &mut impl Read,
+    reader: &mut (impl Read + ?Sized),
     name: &str,
     limits: &ArchiveLimits,
     entry_bytes: &mut u64,

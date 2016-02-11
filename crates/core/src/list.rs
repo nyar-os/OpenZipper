@@ -5,7 +5,7 @@ use crate::{
     format::{self, ArchiveFormat},
     limits::ArchiveLimits,
     model::{ArchiveListing, EntryInfo},
-    tar_codec, zip_codec,
+    sevenz_codec, tar_codec, zip_codec,
 };
 
 pub fn list(path: &Path, limits: &ArchiveLimits) -> Result<ArchiveListing> {
@@ -13,6 +13,7 @@ pub fn list(path: &Path, limits: &ArchiveLimits) -> Result<ArchiveListing> {
     let format = format::detect(path)?;
     let prepared = match format {
         ArchiveFormat::Zip => zip_codec::inspect(path, limits, false)?,
+        ArchiveFormat::SevenZ => sevenz_codec::inspect(path, limits, false)?,
         _ => tar_codec::inspect(path, format, limits, false)?,
     };
 
@@ -33,6 +34,8 @@ pub fn list(path: &Path, limits: &ArchiveLimits) -> Result<ArchiveListing> {
                 kind: entry.kind,
                 size_bytes: entry.size,
                 compressed_size_bytes: entry.compressed,
+                compression_method: entry.compression_method.clone(),
+                modified_at_unix_ms: entry.modified_at_unix_ms,
                 safe: entry.unsafe_reason.is_none(),
                 unsafe_reason: entry.unsafe_reason.clone(),
             }

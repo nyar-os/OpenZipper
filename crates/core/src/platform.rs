@@ -115,15 +115,14 @@ pub fn capabilities() -> Capabilities {
         available(CAP_ARCHIVE_WRITE_TAR_GZ, "gzip-wrapped tar archives are written in process"),
         available(CAP_ARCHIVE_WRITE_TAR_BZ2, "bzip2-wrapped tar archives are written in process"),
         available(CAP_ARCHIVE_WRITE_TAR_XZ, "xz-wrapped tar archives are written in process"),
-        blocked(
+        available(
             CAP_ARCHIVE_READ_7Z,
-            CapabilityState::DependencyBlocked,
-            "no archive-quality 7z codec with an Apache-2.0 compatible license is vendored",
+            "7z entries are decoded in process with sevenz-rust2 (Apache-2.0), covering LZMA, LZMA2, PPMD, BZip2 and Deflate",
         ),
         blocked(
             CAP_ARCHIVE_READ_RAR,
             CapabilityState::DependencyBlocked,
-            "no archive-quality rar codec with an Apache-2.0 compatible license is vendored",
+            "UnRAR source is custom freeware, not Apache-2.0 or MIT: it may not be used to build a RAR-compatible archiver or recreate the RAR algorithm, and the wrapper crates that claim MIT still vendor those sources",
         ),
         available(CAP_PATH_SAFETY, "zip slip, symlink, drive, UNC, device-name and Windows normalization checks run before any write"),
         available(CAP_BOMB_GUARD, "entry count, total size, entry size, compression ratio and nested depth limits abort extraction"),
@@ -175,6 +174,7 @@ mod tests {
             CAP_ARCHIVE_READ_TAR_GZ,
             CAP_ARCHIVE_READ_TAR_BZ2,
             CAP_ARCHIVE_READ_TAR_XZ,
+            CAP_ARCHIVE_READ_7Z,
             CAP_ARCHIVE_WRITE_ZIP,
             CAP_ARCHIVE_WRITE_TAR,
             CAP_ARCHIVE_WRITE_TAR_GZ,
@@ -193,10 +193,8 @@ mod tests {
     #[test]
     fn proprietary_formats_are_dependency_blocked() {
         let report = capabilities();
-        for capability in [CAP_ARCHIVE_READ_7Z, CAP_ARCHIVE_READ_RAR] {
-            let entry = report.entries.iter().find(|entry| entry.capability == capability).expect("entry");
-            assert!(!entry.available);
-            assert_eq!(entry.code, Some(CapabilityState::DependencyBlocked));
-        }
+        let entry = report.entries.iter().find(|entry| entry.capability == CAP_ARCHIVE_READ_RAR).expect("entry");
+        assert!(!entry.available);
+        assert_eq!(entry.code, Some(CapabilityState::DependencyBlocked));
     }
 }

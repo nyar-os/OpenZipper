@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export type ArchiveFormat = 'zip' | 'tar' | 'tar-gz' | 'tar-bz2' | 'tar-xz';
+export type ArchiveFormat = 'zip' | 'tar' | 'tar-gz' | 'tar-bz2' | 'tar-xz' | '7z';
 
 export type EntryKind = 'file' | 'directory' | 'symlink' | 'hardlink' | 'other';
 
@@ -14,6 +14,10 @@ export type EntryInfo = {
     kind: EntryKind;
     sizeBytes: number;
     compressedSizeBytes?: number;
+    /** Decoder label from the archive index, for example `lzma2` or `deflated`. */
+    compressionMethod?: string;
+    /** Absolute modification time in Unix milliseconds. Absent when the format only stores local wall-clock time. */
+    modifiedAtUnixMs?: number;
     /** False when the entry would escape the destination directory. */
     safe: boolean;
     unsafeReason?: string;

@@ -12,6 +12,7 @@ pub enum ArchiveFormat {
     TarGz,
     TarBz2,
     TarXz,
+    SevenZ,
 }
 
 impl ArchiveFormat {
@@ -22,9 +23,11 @@ impl ArchiveFormat {
             "tar.gz" | "tgz" | "targz" => Ok(Self::TarGz),
             "tar.bz2" | "tbz2" | "tbz" | "tarbz2" => Ok(Self::TarBz2),
             "tar.xz" | "txz" | "tarxz" => Ok(Self::TarXz),
-            "7z" | "sevenz" | "rar" => {
-                Err(Error::capability(CapabilityState::DependencyBlocked, format!("`{name}` has no vendored codec with an acceptable license")))
-            }
+            "7z" | "sevenz" => Ok(Self::SevenZ),
+            "rar" => Err(Error::capability(
+                CapabilityState::DependencyBlocked,
+                "rar reading is dependency_blocked: the only available decoders are UnRAR derivatives with a restrictive freeware license",
+            )),
             other => Err(Error::coded(ErrorCode::UnsupportedFormat, format!("unsupported archive format `{other}`"))),
         }
     }
@@ -36,6 +39,7 @@ impl ArchiveFormat {
             Self::TarGz => "tar.gz",
             Self::TarBz2 => "tar.bz2",
             Self::TarXz => "tar.xz",
+            Self::SevenZ => "7z",
         }
     }
 
@@ -46,11 +50,12 @@ impl ArchiveFormat {
             Self::TarGz => "tar.gz",
             Self::TarBz2 => "tar.bz2",
             Self::TarXz => "tar.xz",
+            Self::SevenZ => "7z",
         }
     }
 
     pub fn is_tar(self) -> bool {
-        !matches!(self, Self::Zip)
+        matches!(self, Self::Tar | Self::TarGz | Self::TarBz2 | Self::TarXz)
     }
 }
 
@@ -59,15 +64,12 @@ pub fn detect(path: &Path) -> Result<ArchiveFormat> {
     let name = path.file_name().and_then(|name| name.to_str()).unwrap_or_default().to_ascii_lowercase();
 
     if name.ends_with(".7z") {
-        return Err(Error::capability(
-            CapabilityState::DependencyBlocked,
-            "7z archives are dependency_blocked: no Apache-2.0 compatible codec is vendored",
-        ));
+        return Ok(ArchiveFormat::SevenZ);
     }
     if name.ends_with(".rar") {
         return Err(Error::capability(
             CapabilityState::DependencyBlocked,
-            "rar archives are dependency_blocked: no Apache-2.0 compatible codec is vendored",
+            "rar reading is dependency_blocked: the only available decoders are UnRAR derivatives with a restrictive freeware license",
         ));
     }
     if let Some(format) = from_file_name(&name) {
@@ -92,15 +94,12 @@ pub fn detect(path: &Path) -> Result<ArchiveFormat> {
         return Ok(ArchiveFormat::TarXz);
     }
     if head.starts_with(b"7z\xbc\xaf\x27\x1c") {
-        return Err(Error::capability(
-            CapabilityState::DependencyBlocked,
-            "7z archives are dependency_blocked: no Apache-2.0 compatible codec is vendored",
-        ));
+        return Ok(ArchiveFormat::SevenZ);
     }
     if head.starts_with(b"Rar!\x1a\x07") {
         return Err(Error::capability(
             CapabilityState::DependencyBlocked,
-            "rar archives are dependency_blocked: no Apache-2.0 compatible codec is vendored",
+            "rar reading is dependency_blocked: the only available decoders are UnRAR derivatives with a restrictive freeware license",
         ));
     }
     if is_tar_magic(path)? {
@@ -127,6 +126,9 @@ fn from_file_name(name: &str) -> Option<ArchiveFormat> {
     }
     if name.ends_with(".zip") {
         return Some(ArchiveFormat::Zip);
+    }
+    if name.ends_with(".7z") {
+        return Some(ArchiveFormat::SevenZ);
     }
     if name.ends_with(".tar") {
         return Some(ArchiveFormat::Tar);
@@ -167,8 +169,14 @@ mod tests {
     }
 
     #[test]
-    fn seven_zip_is_dependency_blocked() {
-        let error = ArchiveFormat::from_name("7z").unwrap_err();
+    fn seven_zip_is_a_supported_read_format() {
+        assert_eq!(ArchiveFormat::from_name("7z").unwrap(), ArchiveFormat::SevenZ);
+        assert_eq!(detect_by_name("backup.7z"), Some(ArchiveFormat::SevenZ));
+    }
+
+    #[test]
+    fn rar_remains_dependency_blocked() {
+        let error = ArchiveFormat::from_name("rar").unwrap_err();
         assert_eq!(error.code(), "dependency_blocked");
     }
 

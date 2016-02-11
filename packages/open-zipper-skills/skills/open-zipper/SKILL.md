@@ -7,7 +7,7 @@ description: Inspect, extract, create and verify zip and tar archives from an ag
 
 `open-zipper` is a command-line archive tool with a native core. Listing, extraction, creation and integrity checks run inside the process — no external `7z`, `tar`, `unzip` or `zip` binary is invoked, so the same behaviour applies on every supported host.
 
-Supported formats: `zip`, `tar`, `tar-gz`, `tar-bz2`, `tar-xz`. `7z` and `rar` report `dependency_blocked` with a stable capability code instead of silently degrading.
+Supported formats: `zip`, `7z` (read-only), `tar`, `tar-gz`, `tar-bz2`, `tar-xz`. `rar` reports `dependency_blocked` with a stable capability code instead of silently degrading.
 
 ## Workflow
 

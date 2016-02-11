@@ -1,6 +1,6 @@
 # OpenZipper
 
-Open, inspect, extract, create and verify archives — zip and tar (with gzip, bzip2 and xz wrappers) — on Windows, macOS and Linux.
+Open, inspect, extract, create and verify archives — zip, 7z and tar (with gzip, bzip2 and xz wrappers) — on Windows, macOS and Linux.
 
 **All archive work runs inside the process.** OpenZipper never shells out to `7z`, `tar`, `unzip`, `zip`, `bsdtar`, `rar` or any other external tool. Extraction, creation, entry listing and integrity checks are implemented against in-tree Rust libraries, so behaviour is identical on every host and nothing depends on what a user happens to have installed.
 
@@ -8,7 +8,7 @@ Open, inspect, extract, create and verify archives — zip and tar (with gzip, b
 
 | Area | Detail |
 |------|--------|
-| Formats | `zip`, `tar`, `tar.gz` (`.tgz`), `tar.bz2` (`.tbz2`), `tar.xz` (`.txz`) |
+| Formats | Read: `zip`, `7z`, `tar`, `tar.gz` (`.tgz`), `tar.bz2` (`.tbz2`), `tar.xz` (`.txz`). Write: `zip` and the tar family |
 | Safety | Zip Slip, absolute paths, drive letters, UNC names, link escapes, Windows trailing dot/space and reserved device names are rejected before writing |
 | Bomb guards | Entry count, per-entry size, total size, compression ratio and nested archive depth, all with explicit errors |
 | Encoding | UTF-8 first, then GBK, then a CP437 table, so mixed zip name encodings read back correctly |
@@ -16,7 +16,7 @@ Open, inspect, extract, create and verify archives — zip and tar (with gzip, b
 | Collisions | `error` (default), `skip`, or `rename` — never a silent overwrite |
 | Audit | Every capability call is appended to a local audit trail with a redacted payload |
 
-`7z` and `rar` report `dependency_blocked` with a stable capability code instead of degrading to an external binary or a partial parser.
+`7z` reading covers LZMA, LZMA2, PPMd, BZip2 and Deflate plus the BCJ and Delta filters. Encrypted archives and unsupported codecs fail with the stable codes `encrypted_archive` and `unsupported_compression`. `rar` remains `dependency_blocked`: the UnRAR source is custom freeware, not Apache-2.0 or MIT, forbids use to build a RAR-compatible archiver and is not covered by the MIT label on wrapper crates.
 
 ## Install
 

@@ -11,7 +11,7 @@ use xz2::write::XzEncoder;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 use crate::{
-    error::{Error, ErrorCode, Result},
+    error::{CapabilityState, Error, ErrorCode, Result},
     format::{self, ArchiveFormat},
     fs_util::{SourceEntry, collect_sources},
     model::{CreateOptions, CreateReport},
@@ -112,6 +112,7 @@ fn write_archive(temporary: &Path, format: ArchiveFormat, entries: &[SourceEntry
             let encoder = write_tar(encoder, entries)?;
             encoder.finish().map_err(|error| Error::io(path, error)).map(|_| ())
         }
+        ArchiveFormat::SevenZ => Err(Error::capability(CapabilityState::NotImplemented, "7z creation is not implemented")),
     }
 }
 
