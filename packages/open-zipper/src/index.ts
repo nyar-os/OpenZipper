@@ -10,6 +10,9 @@ import {
     type CreateReport,
     type ExtractOptions,
     type ExtractReport,
+    type GuiCloseResult,
+    type GuiOpenResult,
+    type GuiStatus,
     type ListOptions,
     type OpenGuiOptions,
     type TestOptions,
@@ -36,6 +39,10 @@ export type {
     ExtractOptions,
     ExtractOutcome,
     ExtractReport,
+    GuiCloseResult,
+    GuiOpenResult,
+    GuiState,
+    GuiStatus,
     ListOptions,
     OpenGuiOptions,
     OverwritePolicy,
@@ -76,9 +83,13 @@ export function version(): string {
     return loadNative().version();
 }
 
-export function openGui(options: OpenGuiOptions = {}): void {
+/**
+ * Open the native window. Failures are returned instead of thrown so callers
+ * keep the host code, stage, HRESULT and probed locations.
+ */
+export function openGui(options: OpenGuiOptions = {}): GuiOpenResult {
     const native = loadNative();
-    native.openGui({
+    return native.openGui({
         title: options.title ?? 'OpenZipper',
         contentDir: options.contentDir ?? (options.url ? undefined : defaultGuiContentDir()),
         url: options.url,
@@ -87,17 +98,31 @@ export function openGui(options: OpenGuiOptions = {}): void {
     });
 }
 
-/** Pump the host message loop. Returns false when the GUI has closed. */
-export function pumpEvents(): boolean {
+/** Pump the host message loop once and report the observed lifecycle state. */
+export function pumpEvents(): GuiStatus {
     return loadNative().pumpEvents();
 }
 
-export function closeGui(): void {
-    loadNative().closeGui();
+/** Close the window; the result distinguishes "already closed" from a failure. */
+export function closeGui(): GuiCloseResult {
+    return loadNative().closeGui();
 }
 
 export function isGuiOpen(): boolean {
     return loadNative().isGuiOpen();
+}
+
+/** Structured GUI failure so scripts can branch on `code` without parsing text. */
+export class GuiError extends Error {
+    readonly code: string;
+    readonly status: GuiStatus;
+
+    constructor(status: GuiStatus) {
+        super(status.message ?? `GUI ${status.state} (${status.code ?? 'unknown'})`);
+        this.name = 'GuiError';
+        this.code = status.code ?? 'gui_unknown';
+        this.status = status;
+    }
 }
 
 /**
@@ -113,27 +138,31 @@ export function auditQuery(options: AuditQueryOptions = {}): AuditRecord[] {
     return loadNative().auditQuery(options);
 }
 
-export function runGui(options: OpenGuiOptions = {}, intervalMs = 16): Promise<void> {
-    openGui(options);
+/**
+ * Open the window and pump until it closes. Resolves with the terminal
+ * `gui_closed` status, or rejects with a `GuiError` that carries the host code
+ * so a host that dies right after opening cannot look like a clean shutdown.
+ */
+export function runGui(options: OpenGuiOptions = {}, intervalMs = 16): Promise<GuiStatus> {
+    const opened = openGui(options);
+    if (!opened.ok) {
+        return Promise.reject(new GuiError(opened));
+    }
     return new Promise((resolve, reject) => {
-        let frames = 0;
         const timer = setInterval(() => {
+            let status: GuiStatus;
             try {
-                frames += 1;
-                if (frames === 1 && !isGuiOpen()) {
-                    clearInterval(timer);
-                    reject(new Error('GUI failed to stay open after openGui()'));
-                    return;
-                }
-                if (!pumpEvents()) {
-                    clearInterval(timer);
-                    resolve();
-                }
+                status = pumpEvents();
             }
-            catch (err) {
+            catch (error) {
                 clearInterval(timer);
-                reject(err);
+                reject(error);
+                return;
             }
+            if (status.state === 'open') return;
+            clearInterval(timer);
+            if (status.code === 'gui_closed') resolve(status);
+            else reject(new GuiError(status));
         }, intervalMs);
     });
 }

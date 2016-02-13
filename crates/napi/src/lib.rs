@@ -10,21 +10,32 @@ mod audit;
 use std::{
     cell::RefCell,
     path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Instant,
 };
 
 use open_zipper_core::{
-    ArchiveLimits, CapabilityState, CreateOptions, Error as CoreError, ExtractOptions, OverwritePolicy, capabilities, create, extract, list,
-    test,
+    ArchiveLimits, CapabilityState, CreateOptions, Error as CoreError, ErrorCode, ExtractOptions, OverwritePolicy, Platform, capabilities,
+    create, extract, list, test,
 };
+use serde::Serialize;
 use serde_json::{Value, json};
 use wae::{
     CallContext, Env, Error, JsValue, Result,
     audit::{Actor, ActorKind, Mode, Query},
     function, optional_string_prop, register_module, sys,
-    webview::{IpcHandler, IpcOutcome, OpenOptions, WebViewHost},
+    webview::{IpcHandler, IpcOutcome, OpenOptions, WebViewError, WebViewHost},
 };
 
 const APP_TITLE: &str = "OpenZipper";
+
+/// Stable GUI event codes returned by `pumpEvents`.
+const GUI_CLOSED: &str = "gui_closed";
+const GUI_HOST_EXITED: &str = "gui_host_exited";
+const GUI_CLOSE_FAILED: &str = "gui_close_failed";
 
 thread_local! {
     static GUI: RefCell<Option<GuiState>> = const { RefCell::new(None) };
@@ -32,9 +43,47 @@ thread_local! {
 
 struct GuiState {
     host: WebViewHost,
+    backend: &'static str,
+    opened_at: Instant,
+    /// Set when the page asks the host to close the window, so a dead host can
+    /// be told apart from a host that never processed the request.
+    close_requested: Arc<AtomicBool>,
 }
 
-struct ZipperIpcHandler;
+/// Lifecycle of one GUI host. Failure codes are stable for scripts and audit.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GuiStatus {
+    state: &'static str,
+    code: Option<&'static str>,
+    backend: Option<&'static str>,
+    platform: &'static str,
+    uptime_ms: u64,
+    message: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GuiOpenResult {
+    ok: bool,
+    #[serde(flatten)]
+    status: GuiStatus,
+    stage: Option<&'static str>,
+    hresult: Option<i32>,
+    attempted: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GuiCloseResult {
+    closed: bool,
+    #[serde(flatten)]
+    status: GuiStatus,
+}
+
+struct ZipperIpcHandler {
+    close_requested: Arc<AtomicBool>,
+}
 
 impl IpcHandler for ZipperIpcHandler {
     fn on_ipc(&mut self, message: &str) -> IpcOutcome {
@@ -45,7 +94,10 @@ impl IpcHandler for ZipperIpcHandler {
         let ty = value.get("type").and_then(Value::as_str).unwrap_or("");
         let id = value.get("id").cloned().unwrap_or(Value::Null);
         match ty {
-            "close" => IpcOutcome::CloseWindow,
+            "close" => {
+                self.close_requested.store(true, Ordering::SeqCst);
+                IpcOutcome::CloseWindow
+            }
             "capabilities" => match serde_json::to_value(capabilities()) {
                 Ok(report) => IpcOutcome::ReplyToPage(json!({ "type": "capabilitiesResult", "id": id, "capabilities": report }).to_string()),
                 Err(error) => {
@@ -94,11 +146,11 @@ fn core_error(error: CoreError) -> Error {
     Error::new(error.to_string())
 }
 
-fn webview_error(error: wae::webview::WebViewError) -> CoreError {
-    if matches!(error, wae::webview::WebViewError::Unsupported { .. }) {
+fn webview_error(error: &WebViewError) -> CoreError {
+    if error.capability().is_some() {
         return CoreError::capability(CapabilityState::UnsupportedPlatform, error);
     }
-    CoreError::message(error.to_string())
+    CoreError::coded(ErrorCode::GuiOpenFailed, error.to_string())
 }
 
 fn extract_options(destination: String, overwrite: &str, dry_run: bool, recurse: bool, limits: ArchiveLimits) -> Result<ExtractOptions> {
@@ -474,12 +526,22 @@ fn open_gui(ctx: CallContext) -> Result<JsValue> {
         }
     }
 
+    let platform = Platform::current().name();
     let params = json!({ "title": title.clone(), "contentDir": content_dir.clone(), "url": url.clone() });
-    let host = audit::run("gui-open", Mode::Execute, params, || {
-        let already_open = GUI.with(|slot| slot.borrow().as_ref().map(|state| state.host.is_alive()).unwrap_or(false));
-        if already_open {
-            return Err(CoreError::message("a zipper window is already open"));
-        }
+    let mut failure: Option<WebViewError> = None;
+    let outcome = audit::run("gui-open", Mode::Execute, params, || {
+        GUI.with(|slot| {
+            let mut guard = slot.borrow_mut();
+            if let Some(existing) = guard.as_ref()
+                && existing.host.is_alive()
+            {
+                return Err(CoreError::coded(ErrorCode::GuiAlreadyOpen, "a zipper window is already open"));
+            }
+            // A host left in the slot without a live window is stale; dropping it
+            // keeps `openGui` usable after an unexpected host exit.
+            *guard = None;
+            Ok(())
+        })?;
         let options = if let Some(dir) = content_dir.clone() {
             OpenOptions::from_content_dir(dir, title.clone())
         }
@@ -487,63 +549,162 @@ fn open_gui(ctx: CallContext) -> Result<JsValue> {
             OpenOptions::from_url(url, title.clone())
         }
         else {
-            let dir = resolve_gui_dir().map_err(|error| CoreError::message(error.to_string()))?;
+            let dir =
+                resolve_gui_dir().map_err(|error| CoreError::coded(ErrorCode::GuiOpenFailed, format!("gui content directory: {error}")))?;
             OpenOptions::from_content_dir(dir.display().to_string(), title.clone())
         };
         let mut options = options;
         options.width = width;
         options.height = height;
-        let host = WebViewHost::open(options, Box::new(ZipperIpcHandler)).map_err(webview_error)?;
-        let summary = format!("window opened with {} backend", host.backend_name());
-        Ok((host, audit::Summary::new(1, summary)))
-    })
-    .map_err(core_error)?;
-
-    GUI.with(|slot| {
-        *slot.borrow_mut() = Some(GuiState { host });
+        let close_requested = Arc::new(AtomicBool::new(false));
+        let host =
+            WebViewHost::open(options, Box::new(ZipperIpcHandler { close_requested: Arc::clone(&close_requested) })).map_err(|error| {
+                let core = webview_error(&error);
+                failure = Some(error);
+                core
+            })?;
+        let backend = host.backend_name();
+        let state = GuiState { host, backend, opened_at: Instant::now(), close_requested };
+        let summary = format!("window opened with {backend} backend");
+        Ok((state, audit::Summary::new(1, summary)))
     });
-    ctx.env().undefined()
+
+    let result = match outcome {
+        Ok(state) => {
+            let backend = state.backend;
+            GUI.with(|slot| *slot.borrow_mut() = Some(state));
+            GuiOpenResult {
+                ok: true,
+                status: GuiStatus { state: "open", code: None, backend: Some(backend), platform, uptime_ms: 0, message: None },
+                stage: None,
+                hresult: None,
+                attempted: Vec::new(),
+            }
+        }
+        Err(error) => {
+            let (code, stage, hresult, attempted) = match &failure {
+                Some(failure) => (failure.code().unwrap_or(error.code()), failure.stage(), failure.hresult(), failure_attempted(failure)),
+                None => (error.code(), None, None, Vec::new()),
+            };
+            GuiOpenResult {
+                ok: false,
+                status: GuiStatus {
+                    state: "failed",
+                    code: Some(code),
+                    backend: None,
+                    platform,
+                    uptime_ms: 0,
+                    message: Some(error.to_string()),
+                },
+                stage,
+                hresult,
+                attempted,
+            }
+        }
+    };
+    value_to_js(ctx.env(), &result)
+}
+
+fn failure_attempted(failure: &WebViewError) -> Vec<String> {
+    match failure {
+        WebViewError::Host(host) => host.attempted.clone(),
+        _ => Vec::new(),
+    }
 }
 
 #[function(js_name = "pumpEvents")]
 fn pump_events(ctx: CallContext) -> Result<JsValue> {
-    let alive = audit::run("gui-pump", Mode::Execute, Value::Null, || {
-        let alive = GUI.with(|slot| {
+    let platform = Platform::current().name();
+    let status = audit::run("gui-pump", Mode::Execute, Value::Null, || {
+        let status = GUI.with(|slot| {
             let mut guard = slot.borrow_mut();
-            match guard.as_mut() {
-                Some(state) => {
-                    let ok = state.host.pump();
-                    if !ok {
-                        *guard = None;
-                    }
-                    ok
+            let Some(state) = guard.as_mut()
+            else {
+                return GuiStatus {
+                    state: "closed",
+                    code: Some(ErrorCode::GuiNotOpen.code()),
+                    backend: None,
+                    platform,
+                    uptime_ms: 0,
+                    message: Some("no zipper window is open".to_string()),
+                };
+            };
+            let backend = state.backend;
+            let uptime_ms = state.opened_at.elapsed().as_millis() as u64;
+            if state.host.pump() {
+                return GuiStatus { state: "open", code: None, backend: Some(backend), platform, uptime_ms, message: None };
+            }
+            let requested = state.close_requested.swap(false, Ordering::SeqCst);
+            *guard = None;
+            if requested {
+                GuiStatus { state: "closed", code: Some(GUI_CLOSED), backend: Some(backend), platform, uptime_ms, message: None }
+            }
+            else {
+                GuiStatus {
+                    state: "closed",
+                    code: Some(GUI_HOST_EXITED),
+                    backend: Some(backend),
+                    platform,
+                    uptime_ms,
+                    message: Some(format!("the {backend} webview host stopped without a page close request")),
                 }
-                None => false,
             }
         });
-        Ok((alive, audit::Summary::new(1, if alive { "window alive" } else { "window closed" })))
+        let summary = status.code.unwrap_or("window alive");
+        Ok((status, audit::Summary::new(1, summary)))
     })
     .map_err(core_error)?;
-    ctx.env().boolean(alive)
+    value_to_js(ctx.env(), &status)
 }
 
 #[function(js_name = "closeGui")]
 fn close_gui(ctx: CallContext) -> Result<JsValue> {
-    audit::run("gui-close", Mode::Execute, Value::Null, || {
-        let closed = GUI.with(|slot| {
+    let platform = Platform::current().name();
+    let result = audit::run("gui-close", Mode::Execute, Value::Null, || {
+        let result = GUI.with(|slot| {
             let mut guard = slot.borrow_mut();
-            if let Some(mut state) = guard.take() {
-                let _ = state.host.close();
-                true
-            }
+            let Some(state) = guard.as_mut()
             else {
-                false
+                return GuiCloseResult {
+                    closed: false,
+                    status: GuiStatus {
+                        state: "not_open",
+                        code: Some(ErrorCode::GuiNotOpen.code()),
+                        backend: None,
+                        platform,
+                        uptime_ms: 0,
+                        message: Some("no zipper window is open".to_string()),
+                    },
+                };
+            };
+            let backend = state.backend;
+            let uptime_ms = state.opened_at.elapsed().as_millis() as u64;
+            match state.host.close() {
+                Ok(()) => {
+                    *guard = None;
+                    GuiCloseResult {
+                        closed: true,
+                        status: GuiStatus { state: "closed", code: None, backend: Some(backend), platform, uptime_ms, message: None },
+                    }
+                }
+                Err(error) => GuiCloseResult {
+                    closed: false,
+                    status: GuiStatus {
+                        state: "open",
+                        code: Some(GUI_CLOSE_FAILED),
+                        backend: Some(backend),
+                        platform,
+                        uptime_ms,
+                        message: Some(error.to_string()),
+                    },
+                },
             }
         });
-        Ok(((), audit::Summary::new(1, if closed { "window closed" } else { "no window" })))
+        let summary = if result.closed { "window closed" } else { "close did not complete" };
+        Ok((result, audit::Summary::new(1, summary)))
     })
     .map_err(core_error)?;
-    ctx.env().undefined()
+    value_to_js(ctx.env(), &result)
 }
 
 #[function(js_name = "isGuiOpen")]

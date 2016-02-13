@@ -185,6 +185,36 @@ export type OpenGuiOptions = {
     height?: number;
 };
 
+/** Lifecycle state reported by the native GUI host. */
+export type GuiState = 'open' | 'closed' | 'failed' | 'not_open';
+
+/**
+ * One structured GUI lifecycle observation. `code` is stable for scripts:
+ * `gui_closed`, `gui_host_exited`, `gui_not_open`, `gui_close_failed`,
+ * `gui_already_open`, `gui_open_failed` or `unsupported_platform`.
+ */
+export type GuiStatus = {
+    state: GuiState;
+    code: string | null;
+    backend: string | null;
+    platform: string;
+    uptimeMs: number;
+    message: string | null;
+};
+
+/** Structured result of `openGui`, including host failure detail when known. */
+export type GuiOpenResult = GuiStatus & {
+    ok: boolean;
+    /** Host failure stage, for example `resolve_runtime` or `create_window`. */
+    stage: string | null;
+    /** HRESULT or Win32 error code reported by the host layer. */
+    hresult: number | null;
+    /** Locations or probes the host already tried. */
+    attempted: string[];
+};
+
+export type GuiCloseResult = GuiStatus & { closed: boolean };
+
 type NativeBinding = {
     listEntries(options: ListOptions): ArchiveListing;
     extract(options: ExtractOptions): ExtractReport;
@@ -192,9 +222,9 @@ type NativeBinding = {
     testArchive(options: TestOptions): TestReport;
     capabilities(): Capabilities;
     version(): string;
-    openGui(options?: OpenGuiOptions): void;
-    pumpEvents(): boolean;
-    closeGui(): void;
+    openGui(options?: OpenGuiOptions): GuiOpenResult;
+    pumpEvents(): GuiStatus;
+    closeGui(): GuiCloseResult;
     isGuiOpen(): boolean;
     configureAudit(options?: AuditConfigureOptions): void;
     auditQuery(options?: AuditQueryOptions): AuditRecord[];

@@ -17,6 +17,7 @@ import {
     configureAudit,
     createArchive,
     extract,
+    GuiError,
     listEntries,
     runGui,
     testArchive,
@@ -62,10 +63,17 @@ function errorText(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
+function errorCode(error: unknown): string | undefined {
+    if (typeof error === 'object' && error !== null && 'code' in error) {
+        const code = (error as { code?: unknown }).code;
+        if (typeof code === 'string') return code;
+    }
+    return undefined;
+}
+
 function exitCodeFor(error: unknown): number {
-    const message = errorText(error);
-    if (CAPABILITY_CODES.some((code) => message.includes(code))) return EXIT_CAPABILITY;
-    return EXIT_FAILURE;
+    const code = errorCode(error) ?? errorText(error);
+    return CAPABILITY_CODES.some((item) => code.includes(item)) ? EXIT_CAPABILITY : EXIT_FAILURE;
 }
 
 function reportError(error: unknown): number {
@@ -304,14 +312,17 @@ cli.command('audit', 'cli.cmd.audit')
 cli.command('gui', 'cli.cmd.gui')
     .option('--title <text>', 'cli.opt.title', { default: 'OpenZipper' })
     .option('--content-dir <path>', 'cli.opt.contentDir')
+    .option('--json', 'cli.opt.json')
     .actionCtx(async (options) => {
         applyActor(options);
         const title = typeof options.title === 'string' ? options.title : 'OpenZipper';
         try {
-            await runGui({ title, contentDir: text(options, 'content-dir') });
+            const status = await runGui({ title, contentDir: text(options, 'content-dir') });
+            if (options.json === true) console.log(JSON.stringify(status, null, 2));
             return EXIT_OK;
         }
         catch (error) {
+            if (options.json === true && error instanceof GuiError) console.log(JSON.stringify(error.status, null, 2));
             return reportError(error);
         }
     });
