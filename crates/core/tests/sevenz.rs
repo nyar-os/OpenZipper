@@ -230,12 +230,17 @@ fn large_archive_extract_time() {
     );
 }
 
+/// Deterministic incompressible bytes. A repeated block compresses thousands of
+/// times and trips the bomb-ratio guard, which would measure the guard rather
+/// than the decoder.
 fn make_payload(size: usize) -> Vec<u8> {
-    let block = b"open-zipper seven zip large archive measurement block\n";
+    let mut state = 0x2545_F491_4F6C_DD1Du64;
     let mut payload = Vec::with_capacity(size);
     while payload.len() < size {
-        payload.extend_from_slice(block);
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        payload.push((state >> 24) as u8);
     }
-    payload.truncate(size);
     payload
 }
