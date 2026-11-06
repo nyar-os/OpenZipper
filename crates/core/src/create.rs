@@ -1,12 +1,13 @@
 use std::{
     fs::{self, File},
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use acorn_source::WriteError;
 use acorn_tar::{TarEntryDraft, TarGz, TarWriter};
-use acorn_zip::{ZipDateTime, ZipDosDateTime, ZipEntry, ZipWriter};
+use acorn_zip::{ZipDateTime, ZipDosDateTime, ZipStreamEntry, ZipStreamWriter, ZipWriteError};
 use bzip2::{Compression as BzCompression, write::BzEncoder};
 use xz2::write::XzEncoder;
 
@@ -15,6 +16,7 @@ use crate::{
     format::{self, ArchiveFormat},
     fs_util::{SourceEntry, collect_sources},
     model::{CreateOptions, CreateReport},
+    source::FileSink,
 };
 
 pub fn create(sources: &[PathBuf], destination: &Path, format_name: Option<&str>, options: &CreateOptions) -> Result<CreateReport> {
@@ -91,10 +93,10 @@ fn destination_is_directory(destination: &Path) -> Result<()> {
 fn write_archive(temporary: &Path, format: ArchiveFormat, entries: &[SourceEntry]) -> Result<()> {
     let path = temporary.display().to_string();
     match format {
-        ArchiveFormat::Zip => {
-            let bytes = build_zip(entries)?;
-            fs::write(temporary, bytes).map_err(|error| Error::io(path, error))
-        }
+        ArchiveFormat::Zip => write_zip_streaming(temporary, entries),
+        // Tar and its wrapped variants still assemble the tar image in memory:
+        // Acorn has no streaming tar writer yet, and this path waits for the
+        // upstream `TarStreamWriter` before it can write member by member.
         ArchiveFormat::Tar => fs::write(temporary, build_tar(entries)?).map_err(|error| Error::io(path, error)),
         ArchiveFormat::TarGz => {
             let tar = build_tar(entries)?;
@@ -118,29 +120,65 @@ fn write_archive(temporary: &Path, format: ArchiveFormat, entries: &[SourceEntry
     }
 }
 
-fn build_zip(entries: &[SourceEntry]) -> Result<Vec<u8>> {
+/// Chunk size used to feed source files into the streaming ZIP writer.
+///
+/// It bounds both the bytes held in flight and the encoder's working set, so
+/// creating a large archive no longer needs memory proportional to its size.
+const CREATE_CHUNK: usize = 64 * 1024;
+
+/// Writes the ZIP archive member by member, compressing as the bytes arrive.
+///
+/// Each source file is read in [`CREATE_CHUNK`] slices and handed straight to
+/// the writer, so the temporary archive grows on disk while memory stays flat.
+fn write_zip_streaming(temporary: &Path, entries: &[SourceEntry]) -> Result<()> {
+    let path = temporary.display().to_string();
     let modified_unix = now_unix_seconds();
     let modified = dos_from_unix(modified_unix);
-    let mut writer = ZipWriter::new();
+    let sink = FileSink::create(temporary)?;
+    let mut writer = ZipStreamWriter::new(sink);
 
     for entry in entries {
-        if entry.directory {
-            let mut member = ZipEntry::directory(format!("{}/", entry.name), modified);
+        let member = if entry.directory {
+            let mut member = ZipStreamEntry::directory(format!("{}/", entry.name), modified);
             member.modified_unix = Some(modified_unix);
-            writer.push(member);
+            member
         }
         else {
-            let data = fs::read(&entry.path).map_err(|error| Error::io(entry.path.display().to_string(), error))?;
-            let mut member = ZipEntry::deflated(entry.name.as_bytes(), data);
+            let mut member = ZipStreamEntry::deflated(entry.name.as_bytes());
             member.modified = modified;
             member.modified_unix = Some(modified_unix);
             member.version_made_by = UNIX_HOST_VERSION;
             member.external_attributes = UNIX_FILE_MODE;
-            writer.push(member);
+            member
+        };
+
+        writer.begin_entry(member).map_err(|error| map_zip_write_error(&path, error))?;
+        if !entry.directory {
+            let source_path = entry.path.display().to_string();
+            let mut file = File::open(&entry.path).map_err(|error| Error::io(source_path.clone(), error))?;
+            let mut buffer = vec![0_u8; CREATE_CHUNK];
+            loop {
+                let read = file.read(&mut buffer).map_err(|error| Error::io(source_path.clone(), error))?;
+                if read == 0 {
+                    break;
+                }
+                writer.write_chunk(&buffer[..read]).map_err(|error| map_zip_write_error(&path, error))?;
+            }
         }
+        writer.finish_entry().map_err(|error| map_zip_write_error(&path, error))?;
     }
 
-    writer.into_bytes().map_err(|error| Error::coded(ErrorCode::InvalidArchive, format!("zip: {error}")))
+    writer.close().map_err(|error| map_zip_write_error(&path, error))?;
+    drop(writer.into_sink());
+    Ok(())
+}
+
+fn map_zip_write_error(path: &str, error: ZipWriteError) -> Error {
+    match &error {
+        ZipWriteError::Sink(WriteError::Io(message)) => Error::coded(ErrorCode::IoError, format!("{path}: {message}")),
+        ZipWriteError::Sink(WriteError::BudgetExceeded { .. }) => Error::coded(ErrorCode::ArchiveBomb, format!("zip: {error}")),
+        _ => Error::coded(ErrorCode::InvalidArchive, format!("zip: {error}")),
+    }
 }
 
 /// Unix host identifier with the ZIP 2.0 version, so `unix_mode()` is meaningful.

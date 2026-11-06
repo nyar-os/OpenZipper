@@ -1,17 +1,20 @@
-//! Random-access byte sources for archive backends.
+//! Random-access byte sources and sequential byte sinks for archive backends.
 //!
-//! The source contract belongs to the shared Acorn substrate. Acorn ships
-//! in-memory and range-map sources but no file-backed one, so OpenZipper
-//! supplies it here. Keeping this adapter in the consumer layer means archive
-//! policy (path safety, limits, reporting) never leaks into the shared crate.
+//! The source and sink contracts belong to the shared Acorn substrate. Acorn
+//! ships in-memory sources and sinks but no file-backed variants, so OpenZipper
+//! supplies them here. Keeping these adapters in the consumer layer means
+//! archive policy (path safety, limits, reporting) never leaks into the shared
+//! crate.
 
 use std::{
     fs::File,
-    io::{self, Read},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
 };
 
-use acorn_source::{ByteSource, ReadOutcome, ReadResult, SourceCapabilities, SourceIdentity};
+use acorn_source::{
+    ByteSink, ByteSource, ReadOutcome, ReadResult, SinkCapabilities, SourceCapabilities, SourceIdentity, WriteError, WriteOutcome,
+};
 
 use crate::{Error, Result};
 
@@ -85,6 +88,49 @@ impl ByteSource for FileSource {
 
     fn identity(&self) -> SourceIdentity {
         self.identity.clone()
+    }
+}
+
+/// A new file exposed as a strictly sequential byte sink.
+///
+/// Acorn ships in-memory sinks but no file-backed one, so streaming archive
+/// writers take this adapter from OpenZipper. Only sequential appends are
+/// advertised because the ZIP stream writer emits members and the central
+/// directory strictly forward, which keeps peak memory at the caller's chunk
+/// size instead of the archive size.
+pub(crate) struct FileSink {
+    file: File,
+    written: u64,
+}
+
+impl FileSink {
+    /// Creates `path`, truncating any previous contents.
+    pub(crate) fn create(path: &Path) -> Result<Self> {
+        let file = File::create(path).map_err(|error| Error::io(path.display().to_string(), error))?;
+        Ok(Self { file, written: 0 })
+    }
+}
+
+impl ByteSink for FileSink {
+    fn capabilities(&self) -> SinkCapabilities {
+        SinkCapabilities::SEQUENTIAL
+    }
+
+    fn len(&self) -> u64 {
+        self.written
+    }
+
+    fn append(&mut self, bytes: &[u8]) -> std::result::Result<WriteOutcome, WriteError> {
+        if bytes.is_empty() {
+            return Ok(WriteOutcome::Complete);
+        }
+        self.file.write_all(bytes).map_err(|error| WriteError::Io(error.to_string()))?;
+        self.written += bytes.len() as u64;
+        Ok(WriteOutcome::Complete)
+    }
+
+    fn write_at_impl(&mut self, _offset: u64, _bytes: &[u8]) -> std::result::Result<WriteOutcome, WriteError> {
+        Err(WriteError::Unsupported { operation: "write_at" })
     }
 }
 
@@ -309,6 +355,31 @@ mod tests {
         });
         assert_eq!(first.join().unwrap(), bytes(256)[0..32]);
         assert_eq!(second.join().unwrap(), bytes(256)[128..160]);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn file_sink_appends_in_order_and_reports_length() {
+        let path = temp_file(b"");
+        let mut sink = FileSink::create(&path).unwrap();
+        assert_eq!(sink.capabilities(), SinkCapabilities::SEQUENTIAL);
+        assert_eq!(sink.len(), 0);
+        assert!(matches!(sink.append(b"first").unwrap(), WriteOutcome::Complete));
+        assert!(matches!(sink.append(b"second").unwrap(), WriteOutcome::Complete));
+        assert_eq!(sink.len(), 11);
+        drop(sink);
+        assert_eq!(std::fs::read(&path).unwrap(), b"firstsecond");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn file_sink_refuses_seek_writes() {
+        let path = temp_file(b"");
+        let mut sink = FileSink::create(&path).unwrap();
+        match sink.write_at(0, b"x") {
+            Err(WriteError::Unsupported { operation }) => assert_eq!(operation, "write_at"),
+            other => panic!("seek writes must be rejected, got {other:?}"),
+        }
         std::fs::remove_file(path).unwrap();
     }
 
