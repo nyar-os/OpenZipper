@@ -75,6 +75,17 @@ pub fn patch_zip_name(path: &Path, from: &[u8], to: &[u8]) {
     fs::write(path, replaced).expect("write patched zip");
 }
 
+/// Sets the encryption bit in the local header and the central directory so the
+/// reader has to reject the member instead of trying to decrypt it.
+pub fn mark_zip_encrypted(path: &Path) {
+    let mut bytes = fs::read(path).expect("read zip");
+    assert_eq!(&bytes[..4], b"PK\x03\x04", "the fixture must start with a local header");
+    bytes[6] |= 0x01;
+    let central = bytes.windows(4).rposition(|window| window == b"PK\x01\x02").expect("central directory header");
+    bytes[central + 8] |= 0x01;
+    fs::write(path, bytes).expect("write encrypted zip");
+}
+
 fn replace_all(haystack: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
     let mut output = Vec::with_capacity(haystack.len());
     let mut cursor = 0;

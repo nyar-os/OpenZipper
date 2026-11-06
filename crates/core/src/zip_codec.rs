@@ -141,8 +141,12 @@ pub(crate) fn inspect(path: &Path, limits: &ArchiveLimits, strict: bool) -> Resu
         // The UTF-8 hint in `name_encoding()` is advisory because writers apply it
         // inconsistently, so the fallback order stays UTF-8, then GBK, then CP437.
         let name = decode_name(&member.raw_name);
-        check_encrypted(&name, member)?;
-        check_compression(&name, member)?;
+        // Listing only reads the central directory, so names of encrypted or
+        // exotic members stay visible. Extraction and verification reject them.
+        if strict {
+            check_encrypted(&name, member)?;
+            check_compression(&name, member)?;
+        }
         let kind = member_kind(member);
         let size = member.uncompressed_size;
         let compressed = Some(member.compressed_size);

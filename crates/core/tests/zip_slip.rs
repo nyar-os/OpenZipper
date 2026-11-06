@@ -2,8 +2,8 @@ mod common;
 
 use std::path::PathBuf;
 
-use common::{TempDir, ZipFixtureEntry, patch_zip_name, write_zip};
-use open_zipper_core::{ArchiveLimits, ExtractOptions, OverwritePolicy, extract};
+use common::{TempDir, ZipFixtureEntry, mark_zip_encrypted, patch_zip_name, write_zip};
+use open_zipper_core::{ArchiveLimits, ExtractOptions, OverwritePolicy, extract, list};
 
 fn malicious_zip(directory: &TempDir, name: &str, tag: &str) -> PathBuf {
     let placeholder = "x".repeat(name.len());
@@ -146,6 +146,22 @@ fn overwrite_policies_are_explicit() {
     let report = extract(&archive, &rename).expect("rename policy");
     assert_eq!(report.renamed, 1);
     assert_eq!(common::read_file(&destination.join("report (1).txt")), b"new");
+}
+
+#[test]
+fn encrypted_members_list_but_do_not_extract() {
+    let base = TempDir::new("zip-encrypted");
+    let archive = base.join("encrypted.zip");
+    write_zip(&archive, &[ZipFixtureEntry::file("secret.txt", b"secret")]);
+    mark_zip_encrypted(&archive);
+
+    let listing = list(&archive, &Default::default()).expect("indexing ciphertext names stays available");
+    assert_eq!(listing.entries[0].name, "secret.txt");
+
+    let destination = base.join("out");
+    let error = extract(&archive, &ExtractOptions::new(&destination)).expect_err("encrypted member must be rejected");
+    assert_eq!(error.code(), "encrypted_archive");
+    assert!(!destination.join("secret.txt").exists());
 }
 
 #[test]
