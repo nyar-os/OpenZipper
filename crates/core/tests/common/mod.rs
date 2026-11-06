@@ -86,6 +86,15 @@ pub fn mark_zip_encrypted(path: &Path) {
     fs::write(path, bytes).expect("write encrypted zip");
 }
 
+/// Rewrites the declared uncompressed size of the first central-directory
+/// record, so the index under-reports a payload that really decodes larger.
+pub fn patch_zip_central_uncompressed_size(path: &Path, size: u32) {
+    let mut bytes = fs::read(path).expect("read zip");
+    let central = bytes.windows(4).rposition(|window| window == b"PK\x01\x02").expect("central directory header");
+    bytes[central + 24..central + 28].copy_from_slice(&size.to_le_bytes());
+    fs::write(path, bytes).expect("write patched zip");
+}
+
 fn replace_all(haystack: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
     let mut output = Vec::with_capacity(haystack.len());
     let mut cursor = 0;

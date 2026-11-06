@@ -1,23 +1,22 @@
 use std::{
     collections::HashSet,
     fs::{self, File},
+    io::Write,
     path::Path,
 };
 
-use acorn_core::{Budget, BudgetTracker};
-use acorn_source::ByteSource;
-use acorn_zip::{ZipIndexError, ZipMember, ZipViewError, decode_member, index_zip};
+use acorn_codec::{CodecLimits, compression::StreamChunk};
+use acorn_zip::{ZipIndexError, ZipMember, ZipMemberStream, ZipViewError, index_zip};
 
 use crate::{
     encoding::decode_name,
     error::{Error, ErrorCode, Result},
     extract::{ExtractContext, decide_target, record_directory, record_file},
-    io_util::copy_limited,
     limits::ArchiveLimits,
     model::{EntryKind, ExtractAction, ExtractOptions, ExtractOutcome, ExtractReport},
     platform::Platform,
     safety::{SafeEntryPath, join_destination, validate_entry_path},
-    source::{FileSource, SourceReader},
+    source::FileSource,
 };
 
 /// Unix file-type mask in the upper half of ZIP external attributes.
@@ -74,16 +73,16 @@ fn map_view_error(error: ZipViewError) -> Error {
     }
 }
 
-/// One member gets its own ledger, because the decoded bytes are released as soon
-/// as the entry is written and the archive-wide allowance is enforced separately.
-fn member_budget(limits: &ArchiveLimits) -> Budget {
-    Budget {
-        max_read_bytes: limits.max_entry_bytes,
-        max_decoded_bytes: limits.max_entry_bytes,
-        max_cache_bytes: limits.max_entry_bytes,
-        max_container_members: limits.max_entries as u64,
-        ..Budget::default()
-    }
+/// Chunk size for both the compressed read-ahead and the decoded output buffer.
+const ZIP_STREAM_CHUNK: usize = 64 * 1024;
+
+/// Per-member decoder limits, so an over-expanding payload stops mid-flight.
+///
+/// The compressed input is already bounded by the member's payload range, while
+/// the output limit makes a member that lies about its declared size fail as
+/// soon as it passes the per-entry cap instead of after the whole entry decode.
+fn codec_limits(limits: &ArchiveLimits) -> CodecLimits {
+    CodecLimits::new().with_max_output_bytes(limits.max_entry_bytes)
 }
 
 fn member_kind(member: &ZipMember) -> EntryKind {
@@ -251,18 +250,24 @@ pub(crate) fn extract(
                     continue;
                 }
 
-                let mut ledger = BudgetTracker::new(member_budget(&options.limits));
-                let decoded = decode_member(entry.name.clone(), &source, member, &mut ledger).map_err(map_view_error)?;
-                let length = decoded.length().unwrap_or(0);
-                let mut reader = SourceReader::new(decoded, 0, length);
+                let mut file = {
+                    let target_path = target.path.display().to_string();
+                    if let Some(parent) = target.path.parent() {
+                        fs::create_dir_all(parent).map_err(|error| Error::io(parent.display().to_string(), error))?;
+                    }
+                    File::create(&target.path).map_err(|error| Error::io(target_path, error))?
+                };
 
-                if let Some(parent) = target.path.parent() {
-                    fs::create_dir_all(parent).map_err(|error| Error::io(parent.display().to_string(), error))?;
-                }
-                let mut file = File::create(&target.path).map_err(|error| Error::io(target.path.display().to_string(), error))?;
-                let mut entry_bytes = 0_u64;
-                let written = copy_limited(&mut reader, &mut file, &entry.name, &options.limits, &mut entry_bytes, &mut total_bytes)?;
-                drop(file);
+                let written = match stream_member(&source, member, &entry.name, &options.limits, &mut total_bytes, &mut file) {
+                    Ok(written) => written,
+                    Err(error) => {
+                        // The stream stopped inside a member, so the destination
+                        // file holds only part of it and must not survive.
+                        drop(file);
+                        let _ = fs::remove_file(&target.path);
+                        return Err(error);
+                    }
+                };
 
                 let action = if renamed_to.is_some() {
                     report.renamed += 1;
@@ -282,6 +287,39 @@ pub(crate) fn extract(
     Ok(())
 }
 
+/// Streams one member into `writer`, enforcing the byte caps as bytes arrive.
+///
+/// The decoder keeps only [`ZIP_STREAM_CHUNK`] compressed bytes live, and every
+/// produced chunk is checked before it reaches the writer, so a payload that
+/// expands past the per-entry or total limit aborts without materializing the
+/// entry. `StreamChunk::Finished` is only reported after the declared size and
+/// CRC of the member matched.
+fn stream_member(
+    source: &FileSource,
+    member: &ZipMember,
+    name: &str,
+    limits: &ArchiveLimits,
+    total_bytes: &mut u64,
+    writer: &mut impl Write,
+) -> Result<u64> {
+    let mut stream = ZipMemberStream::with_chunk_size(source, member, codec_limits(limits), ZIP_STREAM_CHUNK).map_err(map_view_error)?;
+    let mut buffer = vec![0_u8; ZIP_STREAM_CHUNK];
+    loop {
+        match stream.read(&mut buffer).map_err(map_view_error)? {
+            StreamChunk::Finished => break,
+            // The reader resolves its own input needs, so a zero-length chunk
+            // only means no byte was committed yet.
+            StreamChunk::Produced(0) | StreamChunk::NeedInput => continue,
+            StreamChunk::Produced(count) => {
+                *total_bytes = total_bytes.saturating_add(count as u64);
+                limits.check_written_bytes(name, stream.decoded_bytes(), *total_bytes)?;
+                writer.write_all(&buffer[..count]).map_err(|error| Error::io(name, error))?;
+            }
+        }
+    }
+    Ok(stream.decoded_bytes())
+}
+
 /// Reads every file member to the end so CRC and declared sizes are verified.
 pub(crate) fn verify(path: &Path, limits: &ArchiveLimits) -> Result<(usize, u64)> {
     let (source, index) = open_index(path)?;
@@ -296,11 +334,8 @@ pub(crate) fn verify(path: &Path, limits: &ArchiveLimits) -> Result<(usize, u64)
         if member_kind(member) != EntryKind::File {
             continue;
         }
-        let mut ledger = BudgetTracker::new(member_budget(limits));
-        let decoded = decode_member(name.clone(), &source, member, &mut ledger).map_err(map_view_error)?;
-        let length = decoded.length().unwrap_or(0);
-        total_bytes = total_bytes.saturating_add(length);
-        limits.check_written_bytes(&name, length, total_bytes)?;
+        let mut sink = std::io::sink();
+        stream_member(&source, member, &name, limits, &mut total_bytes, &mut sink)?;
         checked += 1;
     }
 

@@ -1,7 +1,26 @@
 mod common;
 
-use common::{TempDir, ZipFixtureEntry, write_zip};
+use common::{TempDir, ZipFixtureEntry, patch_zip_central_uncompressed_size, write_zip};
 use open_zipper_core::{ArchiveLimits, ExtractOptions, OverwritePolicy, extract};
+
+/// A member whose declared size passes the preflight check but whose payload
+/// decodes past the per-entry cap must stop during the stream. Reaching the end
+/// of the member instead would report `invalid_archive` from the size check, so
+/// `archive_bomb` is the evidence that the limit fired mid-flight.
+#[test]
+fn member_that_understates_its_size_aborts_mid_stream() {
+    let base = TempDir::new("bomb-lying-size");
+    let archive = base.join("lying.zip");
+    write_zip(&archive, &[ZipFixtureEntry::file("zeros.bin", vec![0_u8; 2 * 1024 * 1024])]);
+    patch_zip_central_uncompressed_size(&archive, 1024);
+
+    let destination = base.join("out");
+    let mut options = ExtractOptions::new(&destination);
+    options.limits = ArchiveLimits { max_entry_bytes: 8 * 1024, max_total_bytes: 8 * 1024, ..ArchiveLimits::default() };
+    let error = extract(&archive, &options).expect_err("an understated member must be rejected");
+    assert_eq!(error.code(), "archive_bomb", "got {error}");
+    assert!(!destination.join("zeros.bin").exists(), "a partially written member must not survive");
+}
 
 #[test]
 fn compression_ratio_aborts_before_writing() {
