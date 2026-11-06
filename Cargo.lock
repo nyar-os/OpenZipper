@@ -3,6 +3,11 @@
 version = 4
 
 [[package]]
+name = "acorn-source"
+version = "0.0.1"
+source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=6798c29abede61043893796b8191aa9acdb8f4fa#6798c29abede61043893796b8191aa9acdb8f4fa"
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -601,6 +606,7 @@ dependencies = [
 name = "open-zipper-core"
 version = "0.0.0"
 dependencies = [
+ "acorn-source",
  "bzip2",
  "encoding_rs",
  "flate2",

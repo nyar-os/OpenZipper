@@ -15,6 +15,7 @@ pub mod list;
 pub mod model;
 pub mod platform;
 pub mod safety;
+pub mod source;
 pub mod test;
 
 mod fs_util;
@@ -34,4 +35,5 @@ pub use model::{
     OverwritePolicy, TestReport,
 };
 pub use platform::{Capabilities, CapabilityEntry, Platform, capabilities};
+pub use source::FileSource;
 pub use test::test;
