@@ -1,12 +1,12 @@
 use std::{
     collections::HashSet,
     fs::{self, File},
-    io::{BufReader, Read},
+    io::{BufReader, Read, Write},
     path::Path,
 };
 
 use acorn_codec::CodecLimits;
-use acorn_tar::{TarArchive, TarEntry, TarEntryKind, TarGz, TarGzArchive, TarGzError, TarIndexError, index_tar};
+use acorn_tar::{StreamChunk, TarArchive, TarEntry, TarEntryKind, TarGzEntry, TarGzError, TarGzStream, TarIndexError, index_tar};
 use bzip2::read::BzDecoder;
 use xz2::read::XzDecoder;
 
@@ -24,21 +24,21 @@ use crate::{
     zip_codec::PreparedEntry,
 };
 
-/// Where the tar byte space lives for the current archive.
+/// Chunk size for streaming a `tar.gz` member to disk.
+const TAR_STREAM_CHUNK: usize = 64 * 1024;
+
+/// Where a seekable tar byte space lives.
 enum Backing {
     /// Plain tar read directly from disk, entry payloads stream through ranges.
     File { source: FileSource, archive: TarArchive },
-    /// A decoded compressed tar held in memory.
+    /// A decoded bzip2 or xz tar held in memory.
     Memory { source: SliceSource, archive: TarArchive },
-    /// `tar.gz` decoded by the Acorn gzip codec.
-    Gz(TarGzArchive),
 }
 
 impl Backing {
     fn entries(&self) -> &[TarEntry] {
         match self {
             Self::File { archive, .. } | Self::Memory { archive, .. } => &archive.entries,
-            Self::Gz(archive) => &archive.archive().entries,
         }
     }
 
@@ -54,14 +54,11 @@ impl Backing {
                     .map(|payload| Box::new(payload) as Box<dyn Read>)
                     .ok_or_else(|| Error::coded(ErrorCode::InvalidArchive, "tar: member payload lies outside the decoded tar bytes"))
             }
-            Self::Gz(archive) => archive
-                .payload(entry)
-                .map(|payload| Box::new(payload) as Box<dyn Read>)
-                .ok_or_else(|| Error::coded(ErrorCode::InvalidArchive, "tar.gz: member payload lies outside the decoded tar bytes")),
         }
     }
 }
 
+/// Loads the seekable variants. `tar.gz` is streamed and never lands here.
 fn load(path: &Path, format: ArchiveFormat, limits: &ArchiveLimits) -> Result<Backing> {
     let label = path.display().to_string();
     match format {
@@ -70,27 +67,19 @@ fn load(path: &Path, format: ArchiveFormat, limits: &ArchiveLimits) -> Result<Ba
             let archive = index_tar(&source).map_err(map_index_error)?;
             Ok(Backing::File { source, archive })
         }
-        ArchiveFormat::TarGz => {
-            let bytes = fs::read(path).map_err(|error| Error::io(label.clone(), error))?;
-            // Tar headers add a bounded amount on top of the payload bytes.
-            let decoded_limit = limits.max_total_bytes.saturating_add((limits.max_entries as u64).saturating_mul(1_024));
-            let codec = CodecLimits::new().with_max_input_bytes(bytes.len() as u64).with_max_output_bytes(decoded_limit);
-            let archive = TarGz::decode(label, &bytes, codec).map_err(map_targz_error)?;
-            Ok(Backing::Gz(archive))
-        }
         ArchiveFormat::TarBz2 | ArchiveFormat::TarXz => {
             let file = File::open(path).map_err(|error| Error::io(label.clone(), error))?;
             let reader: Box<dyn Read> = match format {
                 ArchiveFormat::TarBz2 => Box::new(BzDecoder::new(BufReader::new(file))),
                 _ => Box::new(XzDecoder::new(BufReader::new(file))),
             };
-            let bytes = read_all_limited(reader, limits, &label)?;
+            let bytes = read_all(reader, limits, label.clone())?;
             let source = SliceSource::new(label, bytes);
             let archive = index_tar(&source).map_err(map_index_error)?;
             Ok(Backing::Memory { source, archive })
         }
-        ArchiveFormat::Zip | ArchiveFormat::SevenZ => {
-            Err(Error::coded(ErrorCode::InvalidOption, format!("`{}` is not a tar stream", format.label())))
+        ArchiveFormat::TarGz | ArchiveFormat::Zip | ArchiveFormat::SevenZ => {
+            Err(Error::coded(ErrorCode::InvalidOption, format!("`{}` is not a seekable tar stream", format.label())))
         }
     }
 }
@@ -106,9 +95,19 @@ fn map_targz_error(error: TarGzError) -> Error {
     }
 }
 
+/// Decoded tar bytes stay bounded by the payload budget plus one header block
+/// per entry, which matches the allowance the in-memory path applied.
+fn gzip_limits(limits: &ArchiveLimits) -> CodecLimits {
+    let decoded_limit = limits.max_total_bytes.saturating_add((limits.max_entries as u64).saturating_mul(1_024));
+    CodecLimits::new().with_max_output_bytes(decoded_limit)
+}
+
 /// Decompresses a bzip2 or xz stream while the archive-wide budget is applied.
-fn read_all_limited(mut reader: impl Read, limits: &ArchiveLimits, name: &str) -> Result<Vec<u8>> {
-    let mut buffer = vec![0_u8; 64 * 1024];
+///
+/// Acorn has no streaming bzip2 or xz decoder, so these two formats still
+/// materialize the decoded tar and stop as soon as the total cap is crossed.
+fn read_all(mut reader: impl Read, limits: &ArchiveLimits, name: String) -> Result<Vec<u8>> {
+    let mut buffer = vec![0_u8; TAR_STREAM_CHUNK];
     let mut output = Vec::new();
     loop {
         let read = reader.read(&mut buffer).map_err(|error| Error::coded(ErrorCode::InvalidArchive, format!("`{name}`: {error}")))?;
@@ -135,8 +134,79 @@ fn entry_kind(entry: &TarEntry) -> EntryKind {
     }
 }
 
+/// Applies the shared entry policy to one tar member.
+#[allow(clippy::too_many_arguments)]
+fn prepare_entry(
+    index: usize,
+    name: String,
+    kind: EntryKind,
+    size: u64,
+    modified_unix: i64,
+    limits: &ArchiveLimits,
+    platform: Platform,
+    strict: bool,
+    seen: &mut HashSet<String>,
+    total_declared: &mut u64,
+) -> Result<PreparedEntry> {
+    *total_declared = total_declared.saturating_add(if kind == EntryKind::Directory { 0 } else { size });
+    limits.check_declared_entry(&name, size, None, *total_declared)?;
+
+    let mut safe = None;
+    let mut unsafe_reason = None;
+    match validate_entry_path(&name, platform) {
+        Ok(path) => {
+            if matches!(kind, EntryKind::Symlink | EntryKind::Hardlink) {
+                let reason = format!("entry `{name}` is a link and could escape the destination");
+                if strict {
+                    return Err(Error::coded(ErrorCode::SymlinkEntry, reason));
+                }
+                unsafe_reason = Some(reason);
+            }
+            else if !matches!(kind, EntryKind::File | EntryKind::Directory) {
+                let reason = format!("entry `{name}` has an unsupported tar entry type");
+                if strict {
+                    return Err(Error::coded(ErrorCode::InvalidArchive, reason));
+                }
+                unsafe_reason = Some(reason);
+            }
+            else if !seen.insert(path.normalized_key.clone()) {
+                let reason = format!("entry `{name}` collides with another entry after path normalization");
+                if strict {
+                    return Err(Error::coded(ErrorCode::PathConflict, reason));
+                }
+                unsafe_reason = Some(reason);
+            }
+            else {
+                safe = Some(path);
+            }
+        }
+        Err(error) => {
+            if strict {
+                return Err(error);
+            }
+            unsafe_reason = Some(error.to_string());
+        }
+    }
+
+    Ok(PreparedEntry {
+        index,
+        name,
+        kind,
+        size,
+        compressed: None,
+        compression_method: Some("store".to_string()),
+        modified_at_unix_ms: modified_unix.checked_mul(1_000),
+        safe,
+        unsafe_reason,
+    })
+}
+
 pub(crate) fn inspect(path: &Path, format: ArchiveFormat, limits: &ArchiveLimits, strict: bool) -> Result<Vec<PreparedEntry>> {
     let archive_bytes = fs::metadata(path).map_err(|error| Error::io(path.display().to_string(), error))?.len();
+    if format == ArchiveFormat::TarGz {
+        return inspect_targz(path, limits, strict, archive_bytes);
+    }
+
     let backing = load(path, format, limits)?;
     let platform = Platform::current();
     let mut prepared = Vec::new();
@@ -146,65 +216,60 @@ pub(crate) fn inspect(path: &Path, format: ArchiveFormat, limits: &ArchiveLimits
     for (index, entry) in backing.entries().iter().enumerate() {
         limits.check_entry_count(index + 1)?;
         let name = decode_name(&entry.path);
-        let kind = entry_kind(entry);
-        let size = entry.size;
-        total_declared = total_declared.saturating_add(if kind == EntryKind::Directory { 0 } else { size });
-        limits.check_declared_entry(&name, size, None, total_declared)?;
-
-        let mut safe = None;
-        let mut unsafe_reason = None;
-        match validate_entry_path(&name, platform) {
-            Ok(path) => {
-                if matches!(kind, EntryKind::Symlink | EntryKind::Hardlink) {
-                    let reason = format!("entry `{name}` is a link and could escape the destination");
-                    if strict {
-                        return Err(Error::coded(ErrorCode::SymlinkEntry, reason));
-                    }
-                    unsafe_reason = Some(reason);
-                }
-                else if !matches!(kind, EntryKind::File | EntryKind::Directory) {
-                    let reason = format!("entry `{name}` has an unsupported tar entry type");
-                    if strict {
-                        return Err(Error::coded(ErrorCode::InvalidArchive, reason));
-                    }
-                    unsafe_reason = Some(reason);
-                }
-                else if !seen.insert(path.normalized_key.clone()) {
-                    let reason = format!("entry `{name}` collides with another entry after path normalization");
-                    if strict {
-                        return Err(Error::coded(ErrorCode::PathConflict, reason));
-                    }
-                    unsafe_reason = Some(reason);
-                }
-                else {
-                    safe = Some(path);
-                }
-            }
-            Err(error) => {
-                if strict {
-                    return Err(error);
-                }
-                unsafe_reason = Some(error.to_string());
-            }
-        }
-
-        prepared.push(PreparedEntry {
+        let prepared_entry = prepare_entry(
             index,
             name,
-            kind,
-            size,
-            compressed: None,
-            compression_method: Some("store".to_string()),
-            modified_at_unix_ms: entry.modified_unix.checked_mul(1_000),
-            safe,
-            unsafe_reason,
-        });
+            entry_kind(entry),
+            entry.size,
+            entry.modified_unix,
+            limits,
+            platform,
+            strict,
+            &mut seen,
+            &mut total_declared,
+        )?;
+        prepared.push(prepared_entry);
     }
 
     if !matches!(format, ArchiveFormat::Tar) {
         limits.check_global_ratio(total_declared, archive_bytes)?;
     }
 
+    Ok(prepared)
+}
+
+/// Reads `tar.gz` headers through the streaming decoder without materializing
+/// the decoded tar image. Dropping each entry makes the stream skip its payload.
+fn inspect_targz(path: &Path, limits: &ArchiveLimits, strict: bool, archive_bytes: u64) -> Result<Vec<PreparedEntry>> {
+    let source = FileSource::open(path)?;
+    let mut stream = TarGzStream::open(&source, gzip_limits(limits)).map_err(map_targz_error)?;
+    let platform = Platform::current();
+    let mut prepared = Vec::new();
+    let mut total_declared = 0_u64;
+    let mut seen = HashSet::new();
+    let mut index = 0_usize;
+
+    while let Some(entry) = stream.next_entry().map_err(map_targz_error)? {
+        limits.check_entry_count(index + 1)?;
+        let entry = entry.entry();
+        let name = decode_name(&entry.path);
+        let prepared_entry = prepare_entry(
+            index,
+            name,
+            entry_kind(entry),
+            entry.size,
+            entry.modified_unix,
+            limits,
+            platform,
+            strict,
+            &mut seen,
+            &mut total_declared,
+        )?;
+        prepared.push(prepared_entry);
+        index += 1;
+    }
+
+    limits.check_global_ratio(total_declared, archive_bytes)?;
     Ok(prepared)
 }
 
@@ -217,6 +282,10 @@ pub(crate) fn extract(
     report: &mut ExtractReport,
 ) -> Result<()> {
     let archive_bytes = fs::metadata(path).map_err(|error| Error::io(path.display().to_string(), error))?.len();
+    if format == ArchiveFormat::TarGz {
+        return extract_targz(path, entries, archive_bytes, options, context, report);
+    }
+
     let backing = load(path, format, &options.limits)?;
     let compressed = !matches!(format, ArchiveFormat::Tar);
     let mut total_bytes = 0_u64;
@@ -288,4 +357,127 @@ pub(crate) fn extract(
     }
 
     Ok(())
+}
+
+/// Extracts a `tar.gz` archive member by member over the streaming decoder.
+///
+/// The stream is sequential, so members are consumed in archive order and any
+/// gap before the requested index is skipped, which keeps peak memory at the
+/// decoder's read-ahead instead of the decoded tar size.
+fn extract_targz(
+    path: &Path,
+    entries: &[PreparedEntry],
+    archive_bytes: u64,
+    options: &ExtractOptions,
+    context: &mut ExtractContext,
+    report: &mut ExtractReport,
+) -> Result<()> {
+    let source = FileSource::open(path)?;
+    let mut stream = TarGzStream::open(&source, gzip_limits(&options.limits)).map_err(map_targz_error)?;
+    let mut total_bytes = 0_u64;
+    let mut next_index = 0_usize;
+
+    for prepared in entries {
+        let safe = prepared.safe_path()?;
+        let mut entry = loop {
+            let Some(candidate) = stream.next_entry().map_err(map_targz_error)?
+            else {
+                return Err(Error::coded(ErrorCode::InvalidArchive, format!("entry `{}` disappeared between passes", prepared.name)));
+            };
+            if next_index == prepared.index {
+                break candidate;
+            }
+            next_index += 1;
+        };
+        next_index += 1;
+
+        match prepared.kind {
+            EntryKind::Directory => {
+                if !options.dry_run {
+                    let target = join_destination(&options.destination, safe);
+                    fs::create_dir_all(&target).map_err(|error| Error::io(target.display().to_string(), error))?;
+                }
+                record_directory(report, &prepared.name)?;
+            }
+            EntryKind::File => {
+                let declared = entry.entry().size;
+                let target = decide_target(&options.destination, safe, options.overwrite)?;
+                match &target {
+                    None => {
+                        report.skipped += 1;
+                        report.entries.push(ExtractOutcome {
+                            name: prepared.name.clone(),
+                            action: ExtractAction::SkippedExists,
+                            bytes_written: 0,
+                            renamed_to: None,
+                        });
+                    }
+                    Some(target) if options.dry_run => {
+                        record_file(report, &prepared.name, declared, ExtractAction::WouldWrite, None, None, context);
+                    }
+                    Some(target) => {
+                        if let Some(parent) = target.path.parent() {
+                            fs::create_dir_all(parent).map_err(|error| Error::io(parent.display().to_string(), error))?;
+                        }
+                        let mut file = File::create(&target.path).map_err(|error| Error::io(target.path.display().to_string(), error))?;
+                        let written = match stream_targz_entry(&mut entry, &prepared.name, &options.limits, &mut total_bytes, &mut file) {
+                            Ok(written) => written,
+                            Err(error) => {
+                                // The member stopped mid-payload, so nothing may
+                                // remain of the partial file.
+                                drop(file);
+                                let _ = fs::remove_file(&target.path);
+                                return Err(error);
+                            }
+                        };
+                        drop(file);
+                        if target.renamed {
+                            report.renamed += 1;
+                            record_file(
+                                report,
+                                &prepared.name,
+                                written,
+                                ExtractAction::Renamed,
+                                Some(target.relative_name.clone()),
+                                Some(target.path.clone()),
+                                context,
+                            );
+                        }
+                        else {
+                            record_file(report, &prepared.name, written, ExtractAction::Written, None, Some(target.path.clone()), context);
+                        }
+                    }
+                }
+                options.limits.check_global_ratio(total_bytes, archive_bytes)?;
+            }
+            EntryKind::Symlink | EntryKind::Hardlink | EntryKind::Other => {
+                return Err(Error::coded(ErrorCode::SymlinkEntry, format!("entry `{}` has a type that is not extracted", prepared.name)));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Copies one `tar.gz` member into `writer` while the byte caps are enforced.
+fn stream_targz_entry(
+    entry: &mut TarGzEntry<'_, &FileSource>,
+    name: &str,
+    limits: &ArchiveLimits,
+    total_bytes: &mut u64,
+    writer: &mut impl Write,
+) -> Result<u64> {
+    let mut buffer = vec![0_u8; TAR_STREAM_CHUNK];
+    loop {
+        match entry.read(&mut buffer).map_err(map_targz_error)? {
+            StreamChunk::Finished => break,
+            StreamChunk::Produced(0) | StreamChunk::NeedInput => continue,
+            StreamChunk::Produced(count) => {
+                *total_bytes = total_bytes.saturating_add(count as u64);
+                limits.check_written_bytes(name, entry.read_bytes(), *total_bytes)?;
+                writer.write_all(&buffer[..count]).map_err(|error| Error::io(name, error))?;
+            }
+        }
+    }
+    Ok(entry.read_bytes())
 }
