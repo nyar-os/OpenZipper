@@ -5,12 +5,12 @@ version = 4
 [[package]]
 name = "acorn-codec"
 version = "0.0.1"
-source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=0607e54340f34c65370576c49cc5c4cceee4fb87#0607e54340f34c65370576c49cc5c4cceee4fb87"
+source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=ba97e361c1ed94aae35bdf4bb94e35d4443d0765#ba97e361c1ed94aae35bdf4bb94e35d4443d0765"
 
 [[package]]
 name = "acorn-core"
 version = "0.0.1"
-source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=0607e54340f34c65370576c49cc5c4cceee4fb87#0607e54340f34c65370576c49cc5c4cceee4fb87"
+source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=ba97e361c1ed94aae35bdf4bb94e35d4443d0765#ba97e361c1ed94aae35bdf4bb94e35d4443d0765"
 dependencies = [
  "boost-diagnostic",
 ]
@@ -18,12 +18,12 @@ dependencies = [
 [[package]]
 name = "acorn-source"
 version = "0.0.1"
-source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=0607e54340f34c65370576c49cc5c4cceee4fb87#0607e54340f34c65370576c49cc5c4cceee4fb87"
+source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=ba97e361c1ed94aae35bdf4bb94e35d4443d0765#ba97e361c1ed94aae35bdf4bb94e35d4443d0765"
 
 [[package]]
 name = "acorn-tar"
 version = "0.0.1"
-source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=0607e54340f34c65370576c49cc5c4cceee4fb87#0607e54340f34c65370576c49cc5c4cceee4fb87"
+source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=ba97e361c1ed94aae35bdf4bb94e35d4443d0765#ba97e361c1ed94aae35bdf4bb94e35d4443d0765"
 dependencies = [
  "acorn-codec",
  "acorn-core",
@@ -33,7 +33,7 @@ dependencies = [
 [[package]]
 name = "acorn-zip"
 version = "0.0.1"
-source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=0607e54340f34c65370576c49cc5c4cceee4fb87#0607e54340f34c65370576c49cc5c4cceee4fb87"
+source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=ba97e361c1ed94aae35bdf4bb94e35d4443d0765#ba97e361c1ed94aae35bdf4bb94e35d4443d0765"
 dependencies = [
  "acorn-codec",
  "acorn-core",
