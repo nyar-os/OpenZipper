@@ -4,7 +4,9 @@ use std::{
     path::Path,
 };
 
-use zip::{ZipArchive, result::ZipError};
+use acorn_core::{Budget, BudgetTracker};
+use acorn_source::ByteSource;
+use acorn_zip::{ZipIndexError, ZipMember, ZipViewError, decode_member, index_zip};
 
 use crate::{
     encoding::decode_name,
@@ -12,10 +14,20 @@ use crate::{
     extract::{ExtractContext, decide_target, record_directory, record_file},
     io_util::copy_limited,
     limits::ArchiveLimits,
-    model::{EntryKind, ExtractOptions, ExtractReport},
+    model::{EntryKind, ExtractAction, ExtractOptions, ExtractOutcome, ExtractReport},
     platform::Platform,
     safety::{SafeEntryPath, join_destination, validate_entry_path},
+    source::{FileSource, SourceReader},
 };
+
+/// Unix file-type mask in the upper half of ZIP external attributes.
+const UNIX_FILE_TYPE_MASK: u32 = 0xf000;
+/// Unix symbolic-link file type.
+const UNIX_SYMLINK: u32 = 0xa000;
+/// ZIP compression method for stored members.
+const METHOD_STORED: u16 = 0;
+/// ZIP compression method for raw Deflate members.
+const METHOD_DEFLATE: u16 = 8;
 
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedEntry {
@@ -40,42 +52,100 @@ impl PreparedEntry {
     }
 }
 
-pub(crate) fn open(path: &Path) -> Result<ZipArchive<File>> {
-    let file = File::open(path).map_err(|error| Error::io(path.display().to_string(), error))?;
-    ZipArchive::new(file).map_err(map_zip_error)
+/// Opens the archive file and indexes its central directory without reading payloads.
+fn open_index(path: &Path) -> Result<(FileSource, acorn_zip::ZipArchiveIndex)> {
+    let source = FileSource::open(path)?;
+    let index = index_zip(&source).map_err(map_index_error)?;
+    Ok((source, index))
 }
 
-fn map_zip_error(error: ZipError) -> Error {
-    if matches!(error, ZipError::Io(_)) {
-        return Error::coded(ErrorCode::InvalidArchive, format!("zip: {error}"));
-    }
+fn map_index_error(error: ZipIndexError) -> Error {
     Error::coded(ErrorCode::InvalidArchive, format!("zip: {error}"))
+}
+
+fn map_view_error(error: ZipViewError) -> Error {
+    match &error {
+        ZipViewError::UnsupportedCompression(method) => {
+            Error::coded(ErrorCode::UnsupportedCompression, format!("zip: compression method `{method}` is not supported"))
+        }
+        ZipViewError::BudgetExceeded => Error::coded(ErrorCode::ArchiveBomb, format!("zip: {error}")),
+        ZipViewError::Codec(codec) if codec.is_resource_limit() => Error::coded(ErrorCode::ArchiveBomb, format!("zip: {error}")),
+        _ => Error::coded(ErrorCode::InvalidArchive, format!("zip: {error}")),
+    }
+}
+
+/// One member gets its own ledger, because the decoded bytes are released as soon
+/// as the entry is written and the archive-wide allowance is enforced separately.
+fn member_budget(limits: &ArchiveLimits) -> Budget {
+    Budget {
+        max_read_bytes: limits.max_entry_bytes,
+        max_decoded_bytes: limits.max_entry_bytes,
+        max_cache_bytes: limits.max_entry_bytes,
+        max_container_members: limits.max_entries as u64,
+        ..Budget::default()
+    }
+}
+
+fn member_kind(member: &ZipMember) -> EntryKind {
+    if member.is_directory() {
+        EntryKind::Directory
+    }
+    else if member.unix_mode().is_some_and(|mode| mode & UNIX_FILE_TYPE_MASK == UNIX_SYMLINK) {
+        EntryKind::Symlink
+    }
+    else {
+        EntryKind::File
+    }
+}
+
+/// Rejects encrypted members before any entry is written.
+fn check_encrypted(name: &str, member: &ZipMember) -> Result<()> {
+    if !member.is_encrypted() {
+        return Ok(());
+    }
+    let masked = if member.has_masked_data() { " with masked local sizes" } else { "" };
+    Err(Error::coded(ErrorCode::EncryptedArchive, format!("zip: entry `{name}` is encrypted{masked} and no password was supplied")))
+}
+
+/// Rejects methods this build cannot decode before any entry is written.
+fn check_compression(name: &str, member: &ZipMember) -> Result<()> {
+    match member.compression_method {
+        METHOD_STORED | METHOD_DEFLATE => Ok(()),
+        other => Err(Error::coded(
+            ErrorCode::UnsupportedCompression,
+            format!("zip: entry `{name}` uses compression method `{other}`, which is not supported"),
+        )),
+    }
+}
+
+fn compression_label(method: u16) -> Option<String> {
+    match method {
+        METHOD_STORED => Some("store".to_string()),
+        METHOD_DEFLATE => Some("deflate".to_string()),
+        _ => None,
+    }
 }
 
 /// Read the central directory and validate every entry before any write.
 pub(crate) fn inspect(path: &Path, limits: &ArchiveLimits, strict: bool) -> Result<Vec<PreparedEntry>> {
-    let mut archive = open(path)?;
-    limits.check_entry_count(archive.len())?;
+    let source = FileSource::open(path)?;
+    let index = index_zip(&source).map_err(map_index_error)?;
+    drop(source);
+    limits.check_entry_count(index.members.len())?;
     let platform = Platform::current();
-    let mut prepared = Vec::with_capacity(archive.len());
+    let mut prepared = Vec::with_capacity(index.members.len());
     let mut total = 0_u64;
     let mut seen = HashSet::new();
 
-    for index in 0..archive.len() {
-        let entry = archive.by_index(index).map_err(map_zip_error)?;
-        let name = decode_name(entry.name_raw());
-        let kind = if entry.is_dir() {
-            EntryKind::Directory
-        }
-        else if entry.is_symlink() {
-            EntryKind::Symlink
-        }
-        else {
-            EntryKind::File
-        };
-        let size = entry.size();
-        let compressed = Some(entry.compressed_size());
-        let compression_method = Some(entry.compression().to_string().to_ascii_lowercase());
+    for (position, member) in index.members.iter().enumerate() {
+        // The UTF-8 hint in `name_encoding()` is advisory because writers apply it
+        // inconsistently, so the fallback order stays UTF-8, then GBK, then CP437.
+        let name = decode_name(&member.raw_name);
+        check_encrypted(&name, member)?;
+        check_compression(&name, member)?;
+        let kind = member_kind(member);
+        let size = member.uncompressed_size;
+        let compressed = Some(member.compressed_size);
         total = total.saturating_add(if kind == EntryKind::Directory { 0 } else { size });
         limits.check_declared_entry(&name, size, compressed, total)?;
 
@@ -110,16 +180,15 @@ pub(crate) fn inspect(path: &Path, limits: &ArchiveLimits, strict: bool) -> Resu
         }
 
         prepared.push(PreparedEntry {
-            index,
+            index: position,
             name,
             kind,
             size,
             compressed,
-            compression_method,
-            // Zip stores local wall-clock time without a timezone, so it cannot be
-            // turned into a correct absolute timestamp. Leave it unset instead of
-            // inventing an offset.
-            modified_at_unix_ms: None,
+            compression_method: compression_label(member.compression_method),
+            // The DOS field is local wall-clock time with no zone, so only the
+            // extended Unix timestamp is reported as an absolute instant.
+            modified_at_unix_ms: member.modified_unix.and_then(|seconds| seconds.checked_mul(1_000)),
             safe,
             unsafe_reason,
         });
@@ -135,12 +204,16 @@ pub(crate) fn extract(
     context: &mut ExtractContext,
     report: &mut ExtractReport,
 ) -> Result<()> {
-    let mut archive = open(path)?;
-    let mut entry_bytes;
+    let (source, index) = open_index(path)?;
     let mut total_bytes = 0_u64;
 
     for entry in entries {
         let safe = entry.safe_path()?;
+        let member = index
+            .members
+            .get(entry.index)
+            .ok_or_else(|| Error::coded(ErrorCode::InvalidArchive, format!("entry `{}` disappeared between passes", entry.name)))?;
+
         match entry.kind {
             EntryKind::Directory => {
                 if !options.dry_run {
@@ -154,9 +227,9 @@ pub(crate) fn extract(
                     Some(target) => target,
                     None => {
                         report.skipped += 1;
-                        report.entries.push(crate::model::ExtractOutcome {
+                        report.entries.push(ExtractOutcome {
                             name: entry.name.clone(),
-                            action: crate::model::ExtractAction::SkippedExists,
+                            action: ExtractAction::SkippedExists,
                             bytes_written: 0,
                             renamed_to: None,
                         });
@@ -170,25 +243,29 @@ pub(crate) fn extract(
                 }
 
                 if options.dry_run {
-                    record_file(report, &entry.name, entry.size, crate::model::ExtractAction::WouldWrite, renamed_to, None, context);
+                    record_file(report, &entry.name, entry.size, ExtractAction::WouldWrite, renamed_to, None, context);
                     continue;
                 }
 
-                let mut source = archive.by_index(entry.index).map_err(map_zip_error)?;
+                let mut ledger = BudgetTracker::new(member_budget(&options.limits));
+                let decoded = decode_member(entry.name.clone(), &source, member, &mut ledger).map_err(map_view_error)?;
+                let length = decoded.length().unwrap_or(0);
+                let mut reader = SourceReader::new(decoded, 0, length);
+
                 if let Some(parent) = target.path.parent() {
                     fs::create_dir_all(parent).map_err(|error| Error::io(parent.display().to_string(), error))?;
                 }
                 let mut file = File::create(&target.path).map_err(|error| Error::io(target.path.display().to_string(), error))?;
-                entry_bytes = 0;
-                let written = copy_limited(&mut source, &mut file, &entry.name, &options.limits, &mut entry_bytes, &mut total_bytes)?;
+                let mut entry_bytes = 0_u64;
+                let written = copy_limited(&mut reader, &mut file, &entry.name, &options.limits, &mut entry_bytes, &mut total_bytes)?;
                 drop(file);
 
                 let action = if renamed_to.is_some() {
                     report.renamed += 1;
-                    crate::model::ExtractAction::Renamed
+                    ExtractAction::Renamed
                 }
                 else {
-                    crate::model::ExtractAction::Written
+                    ExtractAction::Written
                 };
                 record_file(report, &entry.name, written, action, renamed_to, Some(target.path.clone()), context);
             }
@@ -199,4 +276,29 @@ pub(crate) fn extract(
     }
 
     Ok(())
+}
+
+/// Reads every file member to the end so CRC and declared sizes are verified.
+pub(crate) fn verify(path: &Path, limits: &ArchiveLimits) -> Result<(usize, u64)> {
+    let (source, index) = open_index(path)?;
+    limits.check_entry_count(index.members.len())?;
+    let mut checked = 0_usize;
+    let mut total_bytes = 0_u64;
+
+    for member in &index.members {
+        let name = decode_name(&member.raw_name);
+        check_encrypted(&name, member)?;
+        check_compression(&name, member)?;
+        if member_kind(member) != EntryKind::File {
+            continue;
+        }
+        let mut ledger = BudgetTracker::new(member_budget(limits));
+        let decoded = decode_member(name.clone(), &source, member, &mut ledger).map_err(map_view_error)?;
+        let length = decoded.length().unwrap_or(0);
+        total_bytes = total_bytes.saturating_add(length);
+        limits.check_written_bytes(&name, length, total_bytes)?;
+        checked += 1;
+    }
+
+    Ok((checked, total_bytes))
 }

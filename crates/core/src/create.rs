@@ -5,10 +5,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use acorn_zip::{ZipDateTime, ZipDosDateTime, ZipEntry, ZipWriter};
 use bzip2::{Compression as BzCompression, write::BzEncoder};
 use flate2::{Compression as GzCompression, write::GzEncoder};
 use xz2::write::XzEncoder;
-use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 use crate::{
     error::{CapabilityState, Error, ErrorCode, Result},
@@ -90,24 +90,30 @@ fn destination_is_directory(destination: &Path) -> Result<()> {
 
 fn write_archive(temporary: &Path, format: ArchiveFormat, entries: &[SourceEntry]) -> Result<()> {
     let path = temporary.display().to_string();
-    let file = File::create(temporary).map_err(|error| Error::io(path.clone(), error))?;
     match format {
-        ArchiveFormat::Zip => write_zip(BufWriter::new(file), entries),
+        ArchiveFormat::Zip => {
+            let bytes = build_zip(entries)?;
+            fs::write(temporary, bytes).map_err(|error| Error::io(path, error))
+        }
         ArchiveFormat::Tar => {
+            let file = File::create(temporary).map_err(|error| Error::io(path.clone(), error))?;
             let mut writer = write_tar(BufWriter::new(file), entries)?;
             writer.flush().map_err(|error| Error::io(path, error))
         }
         ArchiveFormat::TarGz => {
+            let file = File::create(temporary).map_err(|error| Error::io(path.clone(), error))?;
             let encoder = GzEncoder::new(file, GzCompression::default());
             let encoder = write_tar(encoder, entries)?;
             encoder.finish().map_err(|error| Error::io(path, error)).map(|_| ())
         }
         ArchiveFormat::TarBz2 => {
+            let file = File::create(temporary).map_err(|error| Error::io(path.clone(), error))?;
             let encoder = BzEncoder::new(file, BzCompression::default());
             let encoder = write_tar(encoder, entries)?;
             encoder.finish().map_err(|error| Error::io(path, error)).map(|_| ())
         }
         ArchiveFormat::TarXz => {
+            let file = File::create(temporary).map_err(|error| Error::io(path.clone(), error))?;
             let encoder = XzEncoder::new(file, 6);
             let encoder = write_tar(encoder, entries)?;
             encoder.finish().map_err(|error| Error::io(path, error)).map(|_| ())
@@ -116,24 +122,68 @@ fn write_archive(temporary: &Path, format: ArchiveFormat, entries: &[SourceEntry
     }
 }
 
-fn write_zip(writer: BufWriter<File>, entries: &[SourceEntry]) -> Result<()> {
-    let path = "zip output".to_string();
-    let mut zip = ZipWriter::new(writer);
-    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated).unix_permissions(0o644);
+fn build_zip(entries: &[SourceEntry]) -> Result<Vec<u8>> {
+    let modified_unix = now_unix_seconds();
+    let modified = dos_from_unix(modified_unix);
+    let mut writer = ZipWriter::new();
 
     for entry in entries {
         if entry.directory {
-            zip.add_directory(format!("{}/", entry.name), options).map_err(Error::from)?;
+            let mut member = ZipEntry::directory(format!("{}/", entry.name), modified);
+            member.modified_unix = Some(modified_unix);
+            writer.push(member);
         }
         else {
-            zip.start_file(entry.name.clone(), options).map_err(Error::from)?;
-            let mut source = File::open(&entry.path).map_err(|error| Error::io(entry.path.display().to_string(), error))?;
-            std::io::copy(&mut source, &mut zip).map_err(|error| Error::io(entry.path.display().to_string(), error))?;
+            let data = fs::read(&entry.path).map_err(|error| Error::io(entry.path.display().to_string(), error))?;
+            let mut member = ZipEntry::deflated(entry.name.as_bytes(), data);
+            member.modified = modified;
+            member.modified_unix = Some(modified_unix);
+            member.version_made_by = UNIX_HOST_VERSION;
+            member.external_attributes = UNIX_FILE_MODE;
+            writer.push(member);
         }
     }
 
-    let mut writer = zip.finish().map_err(Error::from)?;
-    writer.flush().map_err(|error| Error::io(path, error))
+    writer.into_bytes().map_err(|error| Error::coded(ErrorCode::InvalidArchive, format!("zip: {error}")))
+}
+
+/// Unix host identifier with the ZIP 2.0 version, so `unix_mode()` is meaningful.
+const UNIX_HOST_VERSION: u16 = (3 << 8) | 20;
+/// Regular file with `rw-r--r--` permissions in the Unix attributes high word.
+const UNIX_FILE_MODE: u32 = 0o100644 << 16;
+
+fn now_unix_seconds() -> i64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|duration| duration.as_secs() as i64).unwrap_or(0)
+}
+
+/// Converts Unix seconds to both time fields the writer can emit.
+fn dos_from_unix(seconds: i64) -> ZipDosDateTime {
+    let days = seconds.div_euclid(86_400);
+    let day_seconds = seconds.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    let Ok(year) = u16::try_from(year)
+    else {
+        return ZipDosDateTime::ZERO;
+    };
+    let hour = (day_seconds / 3_600) as u8;
+    let minute = ((day_seconds % 3_600) / 60) as u8;
+    let second = ((day_seconds % 60) / 2 * 2) as u8;
+    ZipDateTime::new(year, month, day, hour, minute, second).and_then(|value| value.to_dos()).unwrap_or(ZipDosDateTime::ZERO)
+}
+
+/// Proleptic Gregorian date from a day count relative to 1970-01-01 (UTC).
+fn civil_from_days(days: i64) -> (i64, u8, u8) {
+    let shifted = days + 719_468;
+    let era = if shifted >= 0 { shifted } else { shifted - 146_096 } / 146_097;
+    let day_of_era = (shifted - era * 146_097) as u64;
+    let year_of_era = (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let year = year_of_era as i64 + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_position = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_position + 2) / 5 + 1;
+    let month = if month_position < 10 { month_position + 3 } else { month_position - 9 };
+    let year = if month <= 2 { year + 1 } else { year };
+    (year, month as u8, day as u8)
 }
 
 fn write_tar<W: Write>(writer: W, entries: &[SourceEntry]) -> Result<W> {

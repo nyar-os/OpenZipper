@@ -7,7 +7,7 @@
 
 use std::{
     fs::File,
-    io,
+    io::{self, Read},
     path::{Path, PathBuf},
 };
 
@@ -85,6 +85,61 @@ impl ByteSource for FileSource {
 
     fn identity(&self) -> SourceIdentity {
         self.identity.clone()
+    }
+}
+
+/// Lets Acorn helpers borrow an open file instead of taking ownership.
+impl ByteSource for &FileSource {
+    fn length(&self) -> Option<u64> {
+        (**self).length()
+    }
+
+    fn read_at(&self, offset: u64, destination: &mut [u8]) -> ReadResult {
+        (**self).read_at(offset, destination)
+    }
+
+    fn capabilities(&self) -> SourceCapabilities {
+        (**self).capabilities()
+    }
+
+    fn identity(&self) -> SourceIdentity {
+        (**self).identity()
+    }
+}
+
+/// Reads a bounded range of a [`ByteSource`] as a sequential [`Read`].
+///
+/// Archive backends hand out ranges, not readers, so extraction streams through
+/// this adapter to keep the existing per-entry and total byte limits in force.
+pub(crate) struct SourceReader<S: ByteSource> {
+    source: S,
+    offset: u64,
+    remaining: u64,
+}
+
+impl<S: ByteSource> SourceReader<S> {
+    pub(crate) fn new(source: S, start: u64, len: u64) -> Self {
+        Self { source, offset: start, remaining: len }
+    }
+}
+
+impl<S: ByteSource> Read for SourceReader<S> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if buffer.is_empty() || self.remaining == 0 {
+            return Ok(0);
+        }
+        let wanted = buffer.len().min(usize::try_from(self.remaining).unwrap_or(usize::MAX));
+        let count = match self.source.read_at(self.offset, &mut buffer[..wanted])? {
+            ReadOutcome::Complete => wanted,
+            ReadOutcome::Partial { bytes_read } => usize::try_from(bytes_read).unwrap_or(0),
+            ReadOutcome::Eof | ReadOutcome::Unavailable { .. } => 0,
+        };
+        if count == 0 {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "archive source ended before the declared range"));
+        }
+        self.offset += count as u64;
+        self.remaining -= count as u64;
+        Ok(count)
     }
 }
 

@@ -3,9 +3,42 @@
 version = 4
 
 [[package]]
+name = "acorn-codec"
+version = "0.0.1"
+source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=0607e54340f34c65370576c49cc5c4cceee4fb87#0607e54340f34c65370576c49cc5c4cceee4fb87"
+
+[[package]]
+name = "acorn-core"
+version = "0.0.1"
+source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=0607e54340f34c65370576c49cc5c4cceee4fb87#0607e54340f34c65370576c49cc5c4cceee4fb87"
+dependencies = [
+ "boost-diagnostic",
+]
+
+[[package]]
 name = "acorn-source"
 version = "0.0.1"
-source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=6798c29abede61043893796b8191aa9acdb8f4fa#6798c29abede61043893796b8191aa9acdb8f4fa"
+source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=0607e54340f34c65370576c49cc5c4cceee4fb87#0607e54340f34c65370576c49cc5c4cceee4fb87"
+
+[[package]]
+name = "acorn-tar"
+version = "0.0.1"
+source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=0607e54340f34c65370576c49cc5c4cceee4fb87#0607e54340f34c65370576c49cc5c4cceee4fb87"
+dependencies = [
+ "acorn-codec",
+ "acorn-core",
+ "acorn-source",
+]
+
+[[package]]
+name = "acorn-zip"
+version = "0.0.1"
+source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=0607e54340f34c65370576c49cc5c4cceee4fb87#0607e54340f34c65370576c49cc5c4cceee4fb87"
+dependencies = [
+ "acorn-codec",
+ "acorn-core",
+ "acorn-source",
+]
 
 [[package]]
 name = "adler2"
@@ -58,6 +91,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "boost-diagnostic"
+version = "0.1.0"
+source = "git+https://github.com/oovm/rust-boost?rev=9aa52745d6eae2d7748c76e4e3e6555e1f6e4b86#9aa52745d6eae2d7748c76e4e3e6555e1f6e4b86"
+dependencies = [
+ "boost-source",
+ "serde",
+]
+
+[[package]]
+name = "boost-source"
+version = "0.1.0"
+source = "git+https://github.com/oovm/rust-boost?rev=9aa52745d6eae2d7748c76e4e3e6555e1f6e4b86#9aa52745d6eae2d7748c76e4e3e6555e1f6e4b86"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -96,12 +146,6 @@ name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
-
-[[package]]
-name = "cfg_aliases"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
 name = "cipher"
@@ -194,12 +238,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "equivalent"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
-
-[[package]]
 name = "errno"
 version = "0.3.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -267,17 +305,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "r-efi",
- "wasm-bindgen",
 ]
-
-[[package]]
-name = "hashbrown"
-version = "0.17.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
 name = "hybrid-array"
@@ -286,16 +316,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27f864f10dfb56725ce5ce5472bc52252c8f93a4ab86327122cebf62c5f59a17"
 dependencies = [
  "typenum",
-]
-
-[[package]]
-name = "indexmap"
-version = "2.14.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
-dependencies = [
- "equivalent",
- "hashbrown",
 ]
 
 [[package]]
@@ -400,18 +420,6 @@ name = "multiversion_no_op"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
-
-[[package]]
-name = "nix"
-version = "0.31.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
-dependencies = [
- "bitflags",
- "cfg-if",
- "cfg_aliases",
- "libc",
-]
 
 [[package]]
 name = "objc2"
@@ -606,7 +614,11 @@ dependencies = [
 name = "open-zipper-core"
 version = "0.0.0"
 dependencies = [
+ "acorn-codec",
+ "acorn-core",
  "acorn-source",
+ "acorn-tar",
+ "acorn-zip",
  "bzip2",
  "encoding_rs",
  "flate2",
@@ -614,7 +626,6 @@ dependencies = [
  "sevenz-rust2",
  "tar",
  "xz2",
- "zip",
 ]
 
 [[package]]
@@ -850,12 +861,6 @@ name = "twox-hash"
 version = "2.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "86a801b3cea342a06d468c8710662aa29e5e05e4f5c0d62f00bbb7f2ad7941c2"
-
-[[package]]
-name = "typed-path"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ce898823d8cd0f028662d2f349694b1af0a5cc9be83f1d213a00d3147445e1e"
 
 [[package]]
 name = "typenum"
@@ -1179,23 +1184,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "388c44dc09d76f1536602ead6d325eb532f5c122f17782bd57fb47baeeb767e2"
 dependencies = [
  "lzma-sys",
-]
-
-[[package]]
-name = "zip"
-version = "9.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23f17fbc870bfac28c6228aed7d6e6df352e26bf7015c4313727e16a7a01ce5e"
-dependencies = [
- "crc32fast",
- "flate2",
- "getrandom",
- "indexmap",
- "libc",
- "memchr",
- "nix",
- "typed-path",
- "windows-sys",
 ]
 
 [[package]]

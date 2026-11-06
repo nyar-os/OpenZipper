@@ -1,14 +1,14 @@
 #![allow(dead_code)]
 
 use std::{
-    fs::{self, File},
-    io::Write,
+    fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
+use acorn_tar::{TarEntryDraft, TarWriter};
+use acorn_zip::{ZipEntry, ZipWriter};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -55,18 +55,14 @@ impl ZipFixtureEntry {
 }
 
 pub fn write_zip(path: &Path, entries: &[ZipFixtureEntry]) {
-    let file = File::create(path).expect("create zip");
-    let mut writer = ZipWriter::new(file);
+    let mut writer = ZipWriter::new();
     for entry in entries {
-        let options = SimpleFileOptions::default()
-            .compression_method(CompressionMethod::Deflated)
-            .unix_permissions(entry.mode & 0o777)
-            .system(zip::System::Unix)
-            .external_attributes((entry.mode & 0o177_777) << 16);
-        writer.start_file(entry.name.as_str(), options).expect("start zip entry");
-        writer.write_all(&entry.data).expect("write zip entry");
+        let mut member = ZipEntry::deflated(entry.name.as_bytes(), entry.data.clone());
+        member.version_made_by = (3 << 8) | 20;
+        member.external_attributes = (entry.mode & 0o177_777) << 16;
+        writer.push(member);
     }
-    writer.finish().expect("finish zip");
+    fs::write(path, writer.into_bytes().expect("build zip")).expect("write zip");
 }
 
 /// Replace raw name bytes in an existing zip. Used to build archives whose
@@ -98,36 +94,40 @@ fn replace_all(haystack: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
 pub struct TarFixtureEntry {
     pub name: String,
     pub data: Vec<u8>,
-    pub kind: tar::EntryType,
+    pub directory: bool,
     pub link: Option<String>,
 }
 
 impl TarFixtureEntry {
     pub fn file(name: impl Into<String>, data: impl Into<Vec<u8>>) -> Self {
-        Self { name: name.into(), data: data.into(), kind: tar::EntryType::Regular, link: None }
+        Self { name: name.into(), data: data.into(), directory: false, link: None }
+    }
+
+    pub fn directory(name: impl Into<String>) -> Self {
+        Self { name: name.into(), data: Vec::new(), directory: true, link: None }
     }
 
     pub fn symlink(name: impl Into<String>, target: impl Into<String>) -> Self {
-        Self { name: name.into(), data: Vec::new(), kind: tar::EntryType::Symlink, link: Some(target.into()) }
+        Self { name: name.into(), data: Vec::new(), directory: false, link: Some(target.into()) }
     }
 }
 
 pub fn write_tar(path: &Path, entries: &[TarFixtureEntry]) {
-    let file = File::create(path).expect("create tar");
-    let mut builder = tar::Builder::new(file);
+    let mut writer = TarWriter::new();
     for entry in entries {
-        let mut header = tar::Header::new_gnu();
-        header.set_size(entry.data.len() as u64);
-        header.set_mode(0o644);
-        header.set_mtime(0);
-        header.set_entry_type(entry.kind);
-        if let Some(link) = &entry.link {
-            let _ = header.set_link_name(link);
+        let mut draft = if entry.directory {
+            TarEntryDraft::directory(entry.name.as_bytes())
         }
-        header.set_cksum();
-        builder.append_data(&mut header, &entry.name, entry.data.as_slice()).expect("append tar entry");
+        else if let Some(link) = &entry.link {
+            TarEntryDraft::symlink(entry.name.as_bytes(), link.as_bytes())
+        }
+        else {
+            TarEntryDraft::file(entry.name.as_bytes(), entry.data.clone())
+        };
+        draft.modified_unix = 0;
+        writer.push(draft);
     }
-    builder.finish().expect("finish tar");
+    fs::write(path, writer.into_bytes().expect("build tar")).expect("write tar");
 }
 
 pub struct RawTarEntry {

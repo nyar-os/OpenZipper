@@ -27,6 +27,8 @@ fn zip_round_trip() {
     let listing = list(&archive, &Default::default()).expect("list zip");
     assert_eq!(listing.format, ArchiveFormat::Zip);
     assert!(listing.entries.iter().any(|entry| entry.name.ends_with("报告.txt")));
+    let report_entry = listing.entries.iter().find(|entry| entry.name.ends_with("报告.txt")).expect("report entry");
+    assert!(report_entry.modified_at_unix_ms.is_some(), "created zip entries carry an extended timestamp");
     test(&archive, &Default::default()).expect("test zip");
 
     let destination = base.join("out");
@@ -65,6 +67,62 @@ fn gbk_entry_names_are_restored() {
     let destination = base.join("out");
     extract(&archive, &ExtractOptions::new(&destination)).expect("extract gbk zip");
     assert_eq!(common::read_file(&destination.join("中文测试.txt")), b"payload");
+}
+
+#[test]
+fn cp437_entry_names_are_restored() {
+    let base = TempDir::new("encoding-cp437");
+    let archive = base.join("cp437.zip");
+    let placeholder = "x.txt";
+    write_zip(&archive, &[ZipFixtureEntry::file(placeholder, b"payload")]);
+    // CP437 `é` followed by `.txt`; the GBK pass rejects 0x82 followed by a dot.
+    patch_zip_name(&archive, placeholder.as_bytes(), &[0x82, b'.', b't', b'x', b't']);
+
+    let listing = list(&archive, &Default::default()).expect("list cp437 zip");
+    assert_eq!(listing.entries[0].name, "\u{e9}.txt");
+}
+
+#[test]
+fn zip64_members_are_read() {
+    let base = TempDir::new("zip64");
+    let archive = base.join("zip64.zip");
+    let mut writer = acorn_zip::ZipWriter::with_zip64(acorn_zip::Zip64Mode::Always);
+    let mut member = acorn_zip::ZipEntry::deflated(b"payload.txt", b"zipped".to_vec());
+    member.version_made_by = (3 << 8) | 20;
+    writer.push(member);
+    std::fs::write(&archive, writer.into_bytes().expect("build zip64")).expect("write zip64");
+
+    let index = acorn_zip::index_zip_bytes("zip64", std::fs::read(&archive).expect("read zip64")).expect("index zip64");
+    assert_eq!(index.members.len(), 1);
+
+    let listing = list(&archive, &Default::default()).expect("list zip64");
+    assert_eq!(listing.entries[0].name, "payload.txt");
+    let destination = base.join("out");
+    extract(&archive, &ExtractOptions::new(&destination)).expect("extract zip64");
+    assert_eq!(common::read_file(&destination.join("payload.txt")), b"zipped");
+}
+
+#[test]
+fn zip_timestamps_round_trip() {
+    let base = TempDir::new("zip-time");
+    let archive = base.join("time.zip");
+    let civil = acorn_zip::ZipDateTime::new(2001, 9, 9, 1, 46, 40).expect("valid civil time");
+    let dos = civil.to_dos().expect("encode dos time");
+    let unix = 1_000_000_000_i64;
+
+    let mut writer = acorn_zip::ZipWriter::new();
+    let mut member = acorn_zip::ZipEntry::stored(b"time.txt", b"time".to_vec());
+    member.modified = dos;
+    member.modified_unix = Some(unix);
+    writer.push(member);
+    let bytes = writer.into_bytes().expect("build timed zip");
+    std::fs::write(&archive, &bytes).expect("write timed zip");
+
+    let index = acorn_zip::index_zip_bytes("time", bytes).expect("index timed zip");
+    assert_eq!(index.members[0].modified.parts(), Some(civil));
+
+    let listing = list(&archive, &Default::default()).expect("list timed zip");
+    assert_eq!(listing.entries[0].modified_at_unix_ms, Some(unix * 1_000));
 }
 
 #[test]

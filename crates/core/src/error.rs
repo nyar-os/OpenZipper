@@ -158,12 +158,6 @@ impl std::error::Error for Error {
     }
 }
 
-impl From<zip::result::ZipError> for Error {
-    fn from(error: zip::result::ZipError) -> Self {
-        Self::coded(ErrorCode::InvalidArchive, format!("zip: {error}"))
-    }
-}
-
 impl From<io::Error> for Error {
     fn from(source: io::Error) -> Self {
         Self::Io { path: "<io>".to_string(), source }

@@ -10,7 +10,11 @@ license = "Apache-2.0"
 repository = "https://github.com/nyar-os/OpenZipper"
 
 [workspace.dependencies]
-acorn-source = { git = "https://github.com/yggdrasil-language/acorn.rs.git", rev = "6798c29abede61043893796b8191aa9acdb8f4fa" }
+acorn-codec = { git = "https://github.com/yggdrasil-language/acorn.rs.git", rev = "0607e54340f34c65370576c49cc5c4cceee4fb87" }
+acorn-core = { git = "https://github.com/yggdrasil-language/acorn.rs.git", rev = "0607e54340f34c65370576c49cc5c4cceee4fb87" }
+acorn-source = { git = "https://github.com/yggdrasil-language/acorn.rs.git", rev = "0607e54340f34c65370576c49cc5c4cceee4fb87" }
+acorn-tar = { git = "https://github.com/yggdrasil-language/acorn.rs.git", rev = "0607e54340f34c65370576c49cc5c4cceee4fb87" }
+acorn-zip = { git = "https://github.com/yggdrasil-language/acorn.rs.git", rev = "0607e54340f34c65370576c49cc5c4cceee4fb87" }
 open-zipper-core = { path = "crates/core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
