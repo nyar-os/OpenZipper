@@ -33,13 +33,11 @@ pub fn create(sources: &[PathBuf], destination: &Path, format_name: Option<&str>
     };
 
     destination_is_directory(destination)?;
-    if fs::symlink_metadata(destination).is_ok() {
-        if options.force {
-            fs::remove_file(destination).map_err(|error| Error::io(destination.display().to_string(), error))?;
-        }
-        else {
-            return Err(Error::coded(ErrorCode::OutputExists, format!("`{}` already exists and `force` is not set", destination.display())));
-        }
+    // `force` replaces the archive only after the new image was written, so a
+    // failed run (missing source, unreadable file, write error) keeps the
+    // previous archive intact.
+    if fs::symlink_metadata(destination).is_ok() && !options.force {
+        return Err(Error::coded(ErrorCode::OutputExists, format!("`{}` already exists and `force` is not set", destination.display())));
     }
 
     let entries = collect_sources(sources)?;

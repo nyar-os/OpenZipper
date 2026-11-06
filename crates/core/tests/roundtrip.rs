@@ -139,6 +139,18 @@ fn create_refuses_existing_output_without_force() {
 }
 
 #[test]
+fn failed_force_create_keeps_the_previous_archive() {
+    let base = TempDir::new("create-force-keeps");
+    let archive = base.join("bundle.zip");
+    write_file(&archive, b"previous");
+    let missing = base.join("missing-input");
+    let error = create(std::slice::from_ref(&missing), &archive, Some("zip"), &CreateOptions { force: true, ..CreateOptions::new() })
+        .expect_err("missing source");
+    assert_eq!(error.code(), "file_missing");
+    assert_eq!(common::read_file(&archive), b"previous", "a failed force create must not destroy the previous archive");
+}
+
+#[test]
 fn extract_rename_is_reported() {
     let base = TempDir::new("extract-rename-report");
     let archive = base.join("bundle.zip");
