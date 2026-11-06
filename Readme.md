@@ -12,7 +12,7 @@ Open, inspect, extract, create and verify archives — zip, 7z and tar (with gzi
 | Safety | Zip Slip, absolute paths, drive letters, UNC names, link escapes, Windows trailing dot/space and reserved device names are rejected before writing |
 | Bomb guards | Entry count, per-entry size, total size, compression ratio and nested archive depth, all with explicit errors |
 | Encoding | UTF-8 first, then GBK, then a CP437 table, so mixed zip name encodings read back correctly |
-| Streaming | Extraction writes member ranges to disk with limits enforced per chunk; creation assembles the archive before the final rename |
+| Streaming | `zip` creation compresses straight into the output file and `zip` / `tar.gz` extraction decodes member by member with limits enforced during the byte flow, so peak memory follows one 64 KiB chunk instead of the archive size. `tar.bz2` and `tar.xz` still decode into memory, and plain `tar` creation builds the tar image before the final rename |
 | Collisions | `error` (default), `skip`, or `rename` — never a silent overwrite |
 | Audit | Every capability call is appended to a local audit trail with a redacted payload |
 

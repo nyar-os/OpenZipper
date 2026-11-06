@@ -95,8 +95,9 @@ fn write_archive(temporary: &Path, format: ArchiveFormat, entries: &[SourceEntry
     match format {
         ArchiveFormat::Zip => write_zip_streaming(temporary, entries),
         // Tar and its wrapped variants still assemble the tar image in memory:
-        // Acorn has no streaming tar writer yet, and this path waits for the
-        // upstream `TarStreamWriter` before it can write member by member.
+        // Acorn does not ship `TarStreamWriter` at revision
+        // `ba97e361c1ed94aae35bdf4bb94e35d4443d0765`. This path switches to it
+        // once the pinned revision provides the streaming writer.
         ArchiveFormat::Tar => fs::write(temporary, build_tar(entries)?).map_err(|error| Error::io(path, error)),
         ArchiveFormat::TarGz => {
             let tar = build_tar(entries)?;
