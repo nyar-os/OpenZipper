@@ -88,7 +88,61 @@ impl ByteSource for FileSource {
     }
 }
 
-/// Lets Acorn helpers borrow an open file instead of taking ownership.
+/// Decoded archive bytes held in memory as a random-access source.
+///
+/// Bzip2 and xz streams are decoded before the tar index is built, so extraction
+/// still reads member ranges instead of re-decompressing the whole stream.
+pub struct SliceSource {
+    bytes: Vec<u8>,
+    identity: SourceIdentity,
+}
+
+impl SliceSource {
+    pub(crate) fn new(label: impl Into<String>, bytes: Vec<u8>) -> Self {
+        let identity = SourceIdentity::new(label.into()).with_content_digest(acorn_source::content_digest_of(&bytes));
+        Self { bytes, identity }
+    }
+
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+impl ByteSource for SliceSource {
+    fn length(&self) -> Option<u64> {
+        Some(self.bytes.len() as u64)
+    }
+
+    fn read_at(&self, offset: u64, destination: &mut [u8]) -> ReadResult {
+        if offset >= self.bytes.len() as u64 {
+            return Ok(ReadOutcome::Eof);
+        }
+        let start = offset as usize;
+        let count = destination.len().min(self.bytes.len() - start);
+        destination[..count].copy_from_slice(&self.bytes[start..start + count]);
+        match count {
+            read if read == destination.len() => Ok(ReadOutcome::Complete),
+            read => Ok(ReadOutcome::Partial { bytes_read: read as u64 }),
+        }
+    }
+
+    fn capabilities(&self) -> SourceCapabilities {
+        SourceCapabilities {
+            random_access: true,
+            known_length: true,
+            repeatable: true,
+            concurrent_reads: true,
+            stable_identity: true,
+            decoded_views: false,
+        }
+    }
+
+    fn identity(&self) -> SourceIdentity {
+        self.identity.clone()
+    }
+}
+
+/// Lets Acorn helpers borrow the open file instead of taking ownership.
 impl ByteSource for &FileSource {
     fn length(&self) -> Option<u64> {
         (**self).length()

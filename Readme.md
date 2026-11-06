@@ -2,7 +2,7 @@
 
 Open, inspect, extract, create and verify archives — zip, 7z and tar (with gzip, bzip2 and xz wrappers) — on Windows, macOS and Linux.
 
-**All archive work runs inside the process.** OpenZipper never shells out to `7z`, `tar`, `unzip`, `zip`, `bsdtar`, `rar` or any other external tool. Extraction, creation, entry listing and integrity checks are implemented against in-tree Rust libraries, so behaviour is identical on every host and nothing depends on what a user happens to have installed.
+**All archive work runs inside the process.** OpenZipper never shells out to `7z`, `tar`, `unzip`, `zip`, `bsdtar`, `rar` or any other external tool. Extraction, creation, entry listing and integrity checks are implemented against Rust archive libraries (Acorn for zip and tar), so behaviour is identical on every host and nothing depends on what a user happens to have installed.
 
 ## What it does
 
@@ -12,7 +12,7 @@ Open, inspect, extract, create and verify archives — zip, 7z and tar (with gzi
 | Safety | Zip Slip, absolute paths, drive letters, UNC names, link escapes, Windows trailing dot/space and reserved device names are rejected before writing |
 | Bomb guards | Entry count, per-entry size, total size, compression ratio and nested archive depth, all with explicit errors |
 | Encoding | UTF-8 first, then GBK, then a CP437 table, so mixed zip name encodings read back correctly |
-| Streaming | Entries are streamed while writing; archives are never loaded whole into memory |
+| Streaming | Extraction writes member ranges to disk with limits enforced per chunk; creation assembles the archive before the final rename |
 | Collisions | `error` (default), `skip`, or `rename` — never a silent overwrite |
 | Audit | Every capability call is appended to a local audit trail with a redacted payload |
 

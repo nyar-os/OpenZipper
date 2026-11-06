@@ -1,13 +1,13 @@
 use std::{
     fs::{self, File},
-    io::{BufWriter, Write},
+    io::Write,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use acorn_tar::{TarEntryDraft, TarGz, TarWriter};
 use acorn_zip::{ZipDateTime, ZipDosDateTime, ZipEntry, ZipWriter};
 use bzip2::{Compression as BzCompression, write::BzEncoder};
-use flate2::{Compression as GzCompression, write::GzEncoder};
 use xz2::write::XzEncoder;
 
 use crate::{
@@ -95,27 +95,23 @@ fn write_archive(temporary: &Path, format: ArchiveFormat, entries: &[SourceEntry
             let bytes = build_zip(entries)?;
             fs::write(temporary, bytes).map_err(|error| Error::io(path, error))
         }
-        ArchiveFormat::Tar => {
-            let file = File::create(temporary).map_err(|error| Error::io(path.clone(), error))?;
-            let mut writer = write_tar(BufWriter::new(file), entries)?;
-            writer.flush().map_err(|error| Error::io(path, error))
-        }
+        ArchiveFormat::Tar => fs::write(temporary, build_tar(entries)?).map_err(|error| Error::io(path, error)),
         ArchiveFormat::TarGz => {
-            let file = File::create(temporary).map_err(|error| Error::io(path.clone(), error))?;
-            let encoder = GzEncoder::new(file, GzCompression::default());
-            let encoder = write_tar(encoder, entries)?;
-            encoder.finish().map_err(|error| Error::io(path, error)).map(|_| ())
+            let tar = build_tar(entries)?;
+            fs::write(temporary, TarGz::encode(&tar)).map_err(|error| Error::io(path, error))
         }
         ArchiveFormat::TarBz2 => {
+            let tar = build_tar(entries)?;
             let file = File::create(temporary).map_err(|error| Error::io(path.clone(), error))?;
-            let encoder = BzEncoder::new(file, BzCompression::default());
-            let encoder = write_tar(encoder, entries)?;
+            let mut encoder = BzEncoder::new(file, BzCompression::default());
+            encoder.write_all(&tar).map_err(|error| Error::io(path.clone(), error))?;
             encoder.finish().map_err(|error| Error::io(path, error)).map(|_| ())
         }
         ArchiveFormat::TarXz => {
+            let tar = build_tar(entries)?;
             let file = File::create(temporary).map_err(|error| Error::io(path.clone(), error))?;
-            let encoder = XzEncoder::new(file, 6);
-            let encoder = write_tar(encoder, entries)?;
+            let mut encoder = XzEncoder::new(file, 6);
+            encoder.write_all(&tar).map_err(|error| Error::io(path.clone(), error))?;
             encoder.finish().map_err(|error| Error::io(path, error)).map(|_| ())
         }
         ArchiveFormat::SevenZ => Err(Error::capability(CapabilityState::NotImplemented, "7z creation is not implemented")),
@@ -186,33 +182,21 @@ fn civil_from_days(days: i64) -> (i64, u8, u8) {
     (year, month as u8, day as u8)
 }
 
-fn write_tar<W: Write>(writer: W, entries: &[SourceEntry]) -> Result<W> {
-    let mut builder = tar::Builder::new(writer);
-    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|duration| duration.as_secs()).unwrap_or(0);
+fn build_tar(entries: &[SourceEntry]) -> Result<Vec<u8>> {
+    let modified_unix = now_unix_seconds();
+    let mut writer = TarWriter::new();
 
     for entry in entries {
-        if entry.directory {
-            let mut header = tar::Header::new_gnu();
-            header.set_entry_type(tar::EntryType::Directory);
-            header.set_mode(0o755);
-            header.set_size(0);
-            header.set_mtime(timestamp);
-            header.set_cksum();
-            builder
-                .append_data(&mut header, format!("{}/", entry.name), std::io::empty())
-                .map_err(|error| Error::io(entry.path.display().to_string(), error))?;
+        let mut draft = if entry.directory {
+            TarEntryDraft::directory(format!("{}/", entry.name).as_bytes())
         }
         else {
-            let mut header = tar::Header::new_gnu();
-            header.set_entry_type(tar::EntryType::Regular);
-            header.set_mode(0o644);
-            header.set_size(entry.size);
-            header.set_mtime(timestamp);
-            header.set_cksum();
-            let mut source = File::open(&entry.path).map_err(|error| Error::io(entry.path.display().to_string(), error))?;
-            builder.append_data(&mut header, &entry.name, &mut source).map_err(|error| Error::io(entry.path.display().to_string(), error))?;
-        }
+            let data = fs::read(&entry.path).map_err(|error| Error::io(entry.path.display().to_string(), error))?;
+            TarEntryDraft::file(entry.name.as_bytes(), data)
+        };
+        draft.modified_unix = modified_unix;
+        writer.push(draft);
     }
 
-    builder.into_inner().map_err(Error::from)
+    writer.into_bytes().map_err(|error| Error::coded(ErrorCode::InvalidArchive, format!("tar: {error}")))
 }

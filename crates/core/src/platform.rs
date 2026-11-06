@@ -107,7 +107,7 @@ pub fn capabilities() -> Capabilities {
     let mut entries = vec![
         available(CAP_ARCHIVE_READ_ZIP, "zip entries are decoded in process, including UTF-8, GBK and CP437 names"),
         available(CAP_ARCHIVE_READ_TAR, "uncompressed tar streams are decoded in process"),
-        available(CAP_ARCHIVE_READ_TAR_GZ, "gzip-wrapped tar streams are decoded in process with flate2"),
+        available(CAP_ARCHIVE_READ_TAR_GZ, "gzip-wrapped tar streams are decoded in process with the Acorn tar.gz codec"),
         available(CAP_ARCHIVE_READ_TAR_BZ2, "bzip2-wrapped tar streams are decoded in process"),
         available(CAP_ARCHIVE_READ_TAR_XZ, "xz-wrapped tar streams are decoded in process"),
         available(CAP_ARCHIVE_WRITE_ZIP, "zip archives are written in process with deflate"),
