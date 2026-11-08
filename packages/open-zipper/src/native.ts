@@ -183,6 +183,11 @@ export type OpenGuiOptions = {
     url?: string;
     width?: number;
     height?: number;
+    /**
+     * What a second open request does in single-window mode. Callers pass the
+     * value from `wae-runtime.json#window.policy`; it defaults to `focus`.
+     */
+    secondLaunch?: 'focus' | 'reject';
 };
 
 /** Lifecycle state reported by the native GUI host. */
@@ -191,7 +196,8 @@ export type GuiState = 'open' | 'closed' | 'failed' | 'not_open';
 /**
  * One structured GUI lifecycle observation. `code` is stable for scripts:
  * `gui_closed`, `gui_host_exited`, `gui_not_open`, `gui_close_failed`,
- * `gui_already_open`, `gui_open_failed` or `unsupported_platform`.
+ * `gui_open_failed`, `window_second_launch_rejected`,
+ * `window_config_invalid` or `unsupported_platform`.
  */
 export type GuiStatus = {
     state: GuiState;

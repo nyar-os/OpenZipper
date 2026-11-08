@@ -52,12 +52,12 @@ pub enum ErrorCode {
     FileMissing,
     IoError,
     Message,
-    /// A desktop GUI host is already running in this process.
-    GuiAlreadyOpen,
     /// A desktop GUI host could not be opened.
     GuiOpenFailed,
     /// No desktop GUI host is running.
     GuiNotOpen,
+    /// A second launch was rejected by the declared `window.secondLaunch` policy.
+    WindowSecondLaunchRejected,
 }
 
 impl ErrorCode {
@@ -77,9 +77,9 @@ impl ErrorCode {
             Self::FileMissing => "file_missing",
             Self::IoError => "io-error",
             Self::Message => "message",
-            Self::GuiAlreadyOpen => "gui_already_open",
             Self::GuiOpenFailed => "gui_open_failed",
             Self::GuiNotOpen => "gui_not_open",
+            Self::WindowSecondLaunchRejected => "window_second_launch_rejected",
         }
     }
 }

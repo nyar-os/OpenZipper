@@ -18,7 +18,7 @@ acorn-zip = { git = "https://github.com/yggdrasil-language/acorn.rs.git", rev = 
 open-zipper-core = { path = "crates/core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-wae = { git = "https://github.com/doki-land/wae-framework.git", rev = "33dbeeb033fe8d8ffa69e587311677033766eb70" }
+wae = { git = "https://github.com/doki-land/wae-framework.git", rev = "66f5d003fec85e28503968fd0a6a271beef0f389" }
 
 [profile.release]
 lto = true

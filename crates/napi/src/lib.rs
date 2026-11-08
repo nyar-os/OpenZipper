@@ -37,6 +37,9 @@ const GUI_CLOSED: &str = "gui_closed";
 const GUI_HOST_EXITED: &str = "gui_host_exited";
 const GUI_CLOSE_FAILED: &str = "gui_close_failed";
 
+/// Code for a `window.secondLaunch` value the host does not understand.
+const WINDOW_CONFIG_INVALID: &str = "window_config_invalid";
+
 thread_local! {
     static GUI: RefCell<Option<GuiState>> = const { RefCell::new(None) };
 }
@@ -48,6 +51,12 @@ struct GuiState {
     /// Set when the page asks the host to close the window, so a dead host can
     /// be told apart from a host that never processed the request.
     close_requested: Arc<AtomicBool>,
+}
+
+/// What `openGui` did: open a fresh host or focus the live one.
+enum GuiOpenAction {
+    Opened(GuiState),
+    Focused { backend: &'static str, uptime_ms: u64 },
 }
 
 /// Lifecycle of one GUI host. Failure codes are stable for scripts and audit.
@@ -533,11 +542,13 @@ fn capabilities_js(ctx: CallContext) -> Result<JsValue> {
 
 #[function(js_name = "openGui")]
 fn open_gui(ctx: CallContext) -> Result<JsValue> {
+    let platform = Platform::current().name();
     let mut title = APP_TITLE.to_string();
     let mut content_dir: Option<String> = None;
     let mut url: Option<String> = None;
     let mut width = 1120;
     let mut height = 780;
+    let mut second_launch = "focus".to_string();
 
     if let Ok(arg) = ctx.arg(0)
         && !arg.is_undefined()?
@@ -547,6 +558,13 @@ fn open_gui(ctx: CallContext) -> Result<JsValue> {
         }
         content_dir = optional_string_prop(arg, "contentDir")?;
         url = optional_string_prop(arg, "url")?;
+        if let Some(value) = optional_string_prop(arg, "secondLaunch")? {
+            if value != "focus" && value != "reject" {
+                let message = format!("`secondLaunch` must be `focus` or `reject`, got `{value}`");
+                return value_to_js(ctx.env(), &gui_open_failure(platform, WINDOW_CONFIG_INVALID, message));
+            }
+            second_launch = value;
+        }
         if let Ok(value) = arg.get_named("width")
             && value.type_of()? == sys::napi_number
         {
@@ -559,51 +577,63 @@ fn open_gui(ctx: CallContext) -> Result<JsValue> {
         }
     }
 
-    let platform = Platform::current().name();
     let params = json!({ "title": title.clone(), "contentDir": content_dir.clone(), "url": url.clone() });
     let mut failure: Option<WebViewError> = None;
     let outcome = audit::run("gui-open", Mode::Execute, params, || {
         GUI.with(|slot| {
             let mut guard = slot.borrow_mut();
-            if let Some(existing) = guard.as_ref()
+            if let Some(existing) = guard.as_mut()
                 && existing.host.is_alive()
             {
-                return Err(CoreError::coded(ErrorCode::GuiAlreadyOpen, "a zipper window is already open"));
+                if second_launch == "reject" {
+                    return Err(CoreError::coded(
+                        ErrorCode::WindowSecondLaunchRejected,
+                        "a window is already open and `window.secondLaunch` is `reject`",
+                    ));
+                }
+                existing.host.focus().map_err(|error| {
+                    let core = webview_error(&error);
+                    failure = Some(error);
+                    core
+                })?;
+                let backend = existing.backend;
+                let uptime_ms = existing.opened_at.elapsed().as_millis() as u64;
+                let summary = format!("window focused with {backend} backend");
+                return Ok((GuiOpenAction::Focused { backend, uptime_ms }, audit::Summary::new(1, summary)));
             }
             // A host left in the slot without a live window is stale; dropping it
             // keeps `openGui` usable after an unexpected host exit.
             *guard = None;
-            Ok(())
-        })?;
-        let options = if let Some(dir) = content_dir.clone() {
-            OpenOptions::from_content_dir(dir, title.clone())
-        }
-        else if let Some(url) = url.clone() {
-            OpenOptions::from_url(url, title.clone())
-        }
-        else {
-            let dir =
-                resolve_gui_dir().map_err(|error| CoreError::coded(ErrorCode::GuiOpenFailed, format!("gui content directory: {error}")))?;
-            OpenOptions::from_content_dir(dir.display().to_string(), title.clone())
-        };
-        let mut options = options;
-        options.width = width;
-        options.height = height;
-        let close_requested = Arc::new(AtomicBool::new(false));
-        let host =
-            WebViewHost::open(options, Box::new(ZipperIpcHandler { close_requested: Arc::clone(&close_requested) })).map_err(|error| {
-                let core = webview_error(&error);
-                failure = Some(error);
-                core
-            })?;
-        let backend = host.backend_name();
-        let state = GuiState { host, backend, opened_at: Instant::now(), close_requested };
-        let summary = format!("window opened with {backend} backend");
-        Ok((state, audit::Summary::new(1, summary)))
+            let options = if let Some(dir) = content_dir.clone() {
+                OpenOptions::from_content_dir(dir, title.clone())
+            }
+            else if let Some(url) = url.clone() {
+                OpenOptions::from_url(url, title.clone())
+            }
+            else {
+                let dir = resolve_gui_dir()
+                    .map_err(|error| CoreError::coded(ErrorCode::GuiOpenFailed, format!("gui content directory: {error}")))?;
+                OpenOptions::from_content_dir(dir.display().to_string(), title.clone())
+            };
+            let mut options = options;
+            options.width = width;
+            options.height = height;
+            let close_requested = Arc::new(AtomicBool::new(false));
+            let host =
+                WebViewHost::open(options, Box::new(ZipperIpcHandler { close_requested: Arc::clone(&close_requested) })).map_err(|error| {
+                    let core = webview_error(&error);
+                    failure = Some(error);
+                    core
+                })?;
+            let backend = host.backend_name();
+            let state = GuiState { host, backend, opened_at: Instant::now(), close_requested };
+            let summary = format!("window opened with {backend} backend");
+            Ok((GuiOpenAction::Opened(state), audit::Summary::new(1, summary)))
+        })
     });
 
     let result = match outcome {
-        Ok(state) => {
+        Ok(GuiOpenAction::Opened(state)) => {
             let backend = state.backend;
             GUI.with(|slot| *slot.borrow_mut() = Some(state));
             GuiOpenResult {
@@ -614,6 +644,13 @@ fn open_gui(ctx: CallContext) -> Result<JsValue> {
                 attempted: Vec::new(),
             }
         }
+        Ok(GuiOpenAction::Focused { backend, uptime_ms }) => GuiOpenResult {
+            ok: true,
+            status: GuiStatus { state: "open", code: None, backend: Some(backend), platform, uptime_ms, message: None },
+            stage: None,
+            hresult: None,
+            attempted: Vec::new(),
+        },
         Err(error) => {
             let (code, stage, hresult, attempted) = match &failure {
                 Some(failure) => (failure.code().unwrap_or(error.code()), failure.stage(), failure.hresult(), failure_attempted(failure)),
@@ -642,6 +679,17 @@ fn failure_attempted(failure: &WebViewError) -> Vec<String> {
     match failure {
         WebViewError::Host(host) => host.attempted.clone(),
         _ => Vec::new(),
+    }
+}
+
+/// Structured failure returned before a host is touched, for policy violations.
+fn gui_open_failure(platform: &'static str, code: &'static str, message: String) -> GuiOpenResult {
+    GuiOpenResult {
+        ok: false,
+        status: GuiStatus { state: "failed", code: Some(code), backend: None, platform, uptime_ms: 0, message: Some(message) },
+        stage: None,
+        hresult: None,
+        attempted: Vec::new(),
     }
 }
 
