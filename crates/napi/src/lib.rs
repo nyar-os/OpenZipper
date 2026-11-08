@@ -137,6 +137,39 @@ impl IpcHandler for ZipperIpcHandler {
                     }
                 }
             }
+            "test" => {
+                let path = value.get("path").and_then(Value::as_str).unwrap_or("").to_string();
+                let limits = limits_from_json(value.get("limits"));
+                match audited_test(path, limits) {
+                    Ok(report) => IpcOutcome::ReplyToPage(
+                        json!({ "type": "testResult", "id": id, "report": serde_json::to_value(&report).unwrap_or(Value::Null) }).to_string(),
+                    ),
+                    Err(error) => IpcOutcome::ReplyToPage(json!({ "type": "testError", "id": id, "message": error.to_string() }).to_string()),
+                }
+            }
+            "create" => {
+                let destination = value.get("destination").and_then(Value::as_str).unwrap_or("").to_string();
+                let sources: Vec<PathBuf> = value
+                    .get("sources")
+                    .and_then(Value::as_array)
+                    .map(|items| items.iter().filter_map(Value::as_str).map(PathBuf::from).collect())
+                    .unwrap_or_default();
+                let format = value.get("format").and_then(Value::as_str).map(str::to_string);
+                let force = value.get("force").and_then(Value::as_bool).unwrap_or(false);
+                let limits = limits_from_json(value.get("limits"));
+                if destination.trim().is_empty() || sources.is_empty() {
+                    return IpcOutcome::ReplyToPage(
+                        json!({ "type": "createError", "id": id, "message": "create requires a destination and at least one source path" })
+                            .to_string(),
+                    );
+                }
+                match audited_create(destination, sources, format, force, limits) {
+                    Ok(report) => IpcOutcome::ReplyToPage(
+                        json!({ "type": "createResult", "id": id, "report": serde_json::to_value(&report).unwrap_or(Value::Null) }).to_string(),
+                    ),
+                    Err(error) => IpcOutcome::ReplyToPage(json!({ "type": "createError", "id": id, "message": error.to_string() }).to_string()),
+                }
+            }
             _ => IpcOutcome::Ignored,
         }
     }
