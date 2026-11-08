@@ -76,7 +76,7 @@ fn archives_far_larger_than_memory_stream_without_expanding() {
     build_source_tree(&source, FILES, FILE_BYTES);
 
     let archive = base.join("large.zip");
-    let (created, create_peak) = peak_of(|| create(&[source.clone()], &archive, Some("zip"), &CreateOptions::new()));
+    let (created, create_peak) = peak_of(|| create(std::slice::from_ref(&source), &archive, Some("zip"), &CreateOptions::new()));
     created.expect("create zip");
 
     let destination = base.join("out");
