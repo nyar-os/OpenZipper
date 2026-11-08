@@ -21,7 +21,7 @@ importers:
   packages/open-zipper:
     dependencies:
       '@wae/commander':
-        specifier: ^0.0.3
+        specifier: 0.0.3
         version: 0.0.3
     optionalDependencies:
       '@wae/open-zipper-darwin-arm64':
