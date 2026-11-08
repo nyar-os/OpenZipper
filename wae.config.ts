@@ -131,4 +131,5 @@ export default {
     audit: {
         actor: { kind: 'flag', id: 'flag', source: 'flag' },
     },
+    window: { mode: 'single', secondLaunch: 'focus' },
 };
