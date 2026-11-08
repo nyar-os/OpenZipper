@@ -1,399 +1,1300 @@
 <template>
-    <div data-open-zipper="root" class="oz-root" data-theme="dark">
-        <AppShell brand="OpenZipper" homeHref="/" navLabel="Navigation" activeId="archive" :nav="navItems">
-            <div class="vmz-slot-content oz-body">
-                <header class="oz-head">
-                    <h1>
-                        {{ title }}
-                    </h1>
-                    <p>
-                        {{ lead }}
-                    </p>
-                </header>
-                <Card :title="openCardTitle" :description="openCardDesc">
-                    <Field
-                        :label="archiveLabel"
-                        :description="archiveDesc"
-                        controlId="oz-archive"
-                        descriptionId="oz-archive-desc"
-                        errorId="oz-archive-err"
-                        describedBy="oz-archive-desc"
-                        :value="archivePath"
-                        :placeholder="archivePlaceholder"
-                        @input="onArchiveInput"
-                    />
-                    <Field
-                        :label="destinationLabel"
-                        :description="destinationDesc"
-                        controlId="oz-destination"
-                        descriptionId="oz-destination-desc"
-                        errorId="oz-destination-err"
-                        describedBy="oz-destination-desc"
+    <div data-open-zipper="root" class="oz-root">
+        <header class="oz-bar">
+            <div class="oz-address">
+                <span class="oz-address__mark" aria-hidden="true">arc</span>
+                <label class="oz-sr" for="oz-archive">Archive file</label>
+                <input
+                    id="oz-archive"
+                    class="oz-address__input"
+                    type="text"
+                    spellcheck="false"
+                    autocomplete="off"
+                    :value="archivePath"
+                    :placeholder="archivePlaceholder"
+                    @input="onArchiveInput"
+                    @keydown="onArchiveKey"
+                />
+            </div>
+            <button type="button" class="oz-btn" :disabled="listing" @click="openArchive">
+                Open
+            </button>
+            <button type="button" class="oz-btn" :data-active="taskView === 'create' ? 'true' : 'false'" @click="toggleCreateTask">
+                Add
+            </button>
+            <button type="button" class="oz-btn oz-btn--primary" :disabled="!canExtract" @click="openExtractTask">
+                Extract
+            </button>
+            <button type="button" class="oz-btn" :disabled="!canVerify || verifying" @click="verifyArchive">
+                {{ verifyLabel }}
+            </button>
+            <button type="button" class="oz-btn oz-btn--ghost oz-bar__close" aria-label="Close window" title="Close window" @click="requestClose">
+                ×
+            </button>
+        </header>
+
+        <div v-if="errorText" class="oz-banner" role="alert">
+            <span class="oz-banner__text">{{ errorText }}</span>
+            <button v-if="canRetryList" type="button" class="oz-btn" @click="openArchive">Retry</button>
+            <button type="button" class="oz-btn oz-btn--ghost" aria-label="Dismiss error" @click="dismissError">×</button>
+        </div>
+
+        <section v-if="taskView" class="oz-task" :data-task="taskView" aria-label="Archive task">
+            <header class="oz-task__head">
+                <span class="oz-task__title">{{ taskTitle }}</span>
+                <span class="oz-task__hint">{{ taskHint }}</span>
+                <span class="oz-task__grow"></span>
+                <button type="button" class="oz-btn oz-btn--ghost" :disabled="extracting || creating" @click="closeTask">
+                    {{ taskCloseLabel }}
+                </button>
+            </header>
+
+            <div v-if="taskView === 'extract'" class="oz-task__body">
+                <div class="oz-task__scope">
+                    <span class="oz-task__label">Scope</span>
+                    <span class="oz-task__value">{{ extractScopeText }}</span>
+                    <span class="oz-task__note">{{ extractScopeNote }}</span>
+                </div>
+                <div class="oz-field oz-field--wide">
+                    <label for="oz-destination">Destination directory</label>
+                    <input
+                        id="oz-destination"
+                        type="text"
+                        spellcheck="false"
                         :value="destination"
                         :placeholder="destinationPlaceholder"
                         @input="onDestinationInput"
                     />
-                    <div class="oz-policy">
-                        <p class="oz-policy__label">
-                            {{ policyLabel }}
-                        </p>
-                        <div class="oz-policy__options">
-                            <Button
-                                v-for="option in policyOptions"
-                                :key="option.value"
-                                type="button"
-                                size="small"
-                                :variant="option.value === overwrite ? 'primary' : 'secondary'"
-                                @click="(() => selectPolicy(option.value))"
-                            >
-                                {{ option.label }}
-                            </Button>
-                        </div>
-                        <p class="oz-policy__hint">
-                            {{ policyHint }}
-                        </p>
+                </div>
+                <div class="oz-field oz-field--policy">
+                    <span class="oz-task__label">Existing files</span>
+                    <div class="oz-policy" role="group" aria-label="Existing files">
+                        <button
+                            v-for="option in policyOptions"
+                            :key="option.value"
+                            type="button"
+                            class="oz-btn"
+                            :data-active="option.value === overwrite ? 'true' : 'false'"
+                            @click="(() => selectPolicy(option.value))"
+                        >
+                            {{ option.label }}
+                        </button>
                     </div>
-                    <div class="oz-toggles">
-                        <Checkbox :label="dryRunLabel" controlId="oz-dry-run" :checked="dryRun" @change="onDryRunChange" />
-                        <Checkbox :label="recurseLabel" controlId="oz-recurse" :checked="recurse" @change="onRecurseChange" />
+                </div>
+                <div class="oz-field oz-field--checks">
+                    <label><input type="checkbox" :checked="dryRun" @change="onDryRunChange" /> Preview only (dry run)</label>
+                    <label><input type="checkbox" :checked="recurse" @change="onRecurseChange" /> Extract nested archives</label>
+                </div>
+                <div class="oz-field oz-field--actions">
+                    <button type="button" class="oz-btn oz-btn--primary" :disabled="!canStartExtract" @click="startExtract">
+                        {{ extractLabel }}
+                    </button>
+                    <span class="oz-task__note">{{ extractImpactText }}</span>
+                </div>
+                <div v-if="extracting" class="oz-running" role="status">
+                    <span class="oz-spinner" aria-hidden="true"></span>
+                    <span>{{ extractProgressText }}</span>
+                </div>
+                <div v-if="extractReportRows.length" class="oz-result">
+                    <div class="oz-result__head">
+                        <span>{{ extractResultText }}</span>
+                        <span class="oz-task__grow"></span>
+                        <button type="button" class="oz-btn oz-btn--ghost" @click="toggleExtractResult">
+                            {{ extractResultToggle }}
+                        </button>
+                        <button type="button" class="oz-btn oz-btn--ghost" @click="copyExtractResult">Copy</button>
                     </div>
-                    <div class="oz-actions">
-                        <Button type="button" variant="secondary" :loading="listing" :disabled="working" @click="refreshListing">
-                            {{ listLabel }}
-                        </Button>
-                        <Button type="button" :loading="extracting" :disabled="working" @click="startExtract">
-                            {{ extractLabel }}
-                        </Button>
-                        <Button type="button" variant="secondary" @click="requestClose">
-                            {{ closeLabel }}
-                        </Button>
-                    </div>
-                    <Alert v-if="error" tone="danger" roleName="alert" :title="errorTitle" :description="error" />
-                    <Alert v-else-if="status" tone="info" roleName="status" :title="statusTitle" :description="status" />
-                </Card>
-                <Card :title="entriesCardTitle" :description="entriesCardDesc">
-                    <div v-if="working" class="oz-progress">
-                        <Spinner :label="loadingLabel" />
-                        <span class="oz-progress__text">
-                            {{ progressText }}
-                        </span>
-                        <Progress :percent="progressPercent" :showInfo="true" />
-                    </div>
-                    <div class="oz-stats">
-                        <div class="oz-stat">
-                            <div class="oz-stat__label">
-                                {{ entryCountLabel }}
-                            </div>
-                            <div class="oz-stat__value">
-                                {{ entryCountText }}
-                            </div>
-                        </div>
-                        <div class="oz-stat">
-                            <div class="oz-stat__label">
-                                {{ totalSizeLabel }}
-                            </div>
-                            <div class="oz-stat__value">
-                                {{ totalSizeText }}
-                            </div>
-                        </div>
-                        <div class="oz-stat">
-                            <div class="oz-stat__label">
-                                {{ unsafeCountLabel }}
-                            </div>
-                            <div class="oz-stat__value">
-                                {{ unsafeCountText }}
-                            </div>
-                        </div>
-                        <div class="oz-stat">
-                            <div class="oz-stat__label">
-                                {{ formatLabel }}
-                            </div>
-                            <div class="oz-stat__value">
-                                {{ formatText }}
-                            </div>
-                        </div>
-                    </div>
-                    <Empty v-if="!entryRows.length && !working" :title="emptyTitle" :description="emptyDesc" />
-                    <Table
-                        v-else
-                        :columns="entryColumns"
-                        :rows="entryRows"
-                        :loading="listing"
-                        :loadingLabel="loadingLabel"
-                        :loadingText="loadingText"
-                        :hasRowAction="false"
-                    />
-                </Card>
-                <Card :title="resultCardTitle" :description="resultCardDesc">
-                    <div class="oz-stats">
-                        <div class="oz-stat">
-                            <div class="oz-stat__label">
-                                {{ writtenLabel }}
-                            </div>
-                            <div class="oz-stat__value">
-                                {{ writtenText }}
-                            </div>
-                        </div>
-                        <div class="oz-stat">
-                            <div class="oz-stat__label">
-                                {{ directoriesLabel }}
-                            </div>
-                            <div class="oz-stat__value">
-                                {{ directoriesText }}
-                            </div>
-                        </div>
-                        <div class="oz-stat">
-                            <div class="oz-stat__label">
-                                {{ bytesLabel }}
-                            </div>
-                            <div class="oz-stat__value">
-                                {{ bytesText }}
-                            </div>
-                        </div>
-                        <div class="oz-stat">
-                            <div class="oz-stat__label">
-                                {{ collisionLabel }}
-                            </div>
-                            <div class="oz-stat__value">
-                                {{ collisionText }}
-                            </div>
-                        </div>
-                    </div>
-                    <p v-if="nestedLine" class="oz-note">
-                        {{ nestedLine }}
-                    </p>
-                    <Empty v-if="!resultRows.length && !working" :title="resultEmptyTitle" :description="resultEmptyDesc" />
-                    <Table v-else :columns="resultColumns" :rows="resultRows" :hasRowAction="false" />
-                </Card>
-                <Card :title="capabilitiesCardTitle" :description="capabilitiesCardDesc">
-                    <Table
-                        :columns="capabilityColumns"
-                        :rows="capabilityRows"
-                        :loading="loadingCapabilities"
-                        :loadingLabel="loadingLabel"
-                        :loadingText="loadingText"
-                        :hasRowAction="false"
-                    />
-                </Card>
+                    <table v-if="extractResultOpen" class="oz-table oz-table--compact">
+                        <thead>
+                            <tr>
+                                <th scope="col">Action</th>
+                                <th scope="col">Entry</th>
+                                <th scope="col" class="oz-num">Bytes</th>
+                                <th scope="col">Renamed to</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="row in extractReportRows" :key="row.key">
+                                <td>{{ row.action }}</td>
+                                <td class="oz-name" :title="row.name">{{ row.name }}</td>
+                                <td class="oz-num">{{ row.bytes }}</td>
+                                <td class="oz-muted">{{ row.renamed }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
-        </AppShell>
+
+            <div v-if="taskView === 'create'" class="oz-task__body">
+                <div class="oz-field oz-field--wide">
+                    <label for="oz-source">Source paths</label>
+                    <div class="oz-source">
+                        <input
+                            id="oz-source"
+                            type="text"
+                            spellcheck="false"
+                            :value="sourceDraft"
+                            :placeholder="sourcePlaceholder"
+                            @input="onSourceDraftInput"
+                            @keydown="onSourceKey"
+                        />
+                        <button type="button" class="oz-btn" :disabled="!canAddSource" @click="addSource">
+                            Add
+                        </button>
+                    </div>
+                </div>
+                <ul v-if="createSources.length" class="oz-source-list">
+                    <li v-for="item in createSources" :key="item.key">
+                        <span class="oz-source-list__path" :title="item.path">{{ item.path }}</span>
+                        <button type="button" class="oz-btn oz-btn--ghost" @click="removeSource(item.key)">×</button>
+                    </li>
+                </ul>
+                <div class="oz-field oz-field--wide">
+                    <label for="oz-create-destination">Archive to create</label>
+                    <input
+                        id="oz-create-destination"
+                        type="text"
+                        spellcheck="false"
+                        :value="createDestination"
+                        :placeholder="createDestinationPlaceholder"
+                        @input="onCreateDestinationInput"
+                    />
+                </div>
+                <div class="oz-field">
+                    <label for="oz-create-format">Format</label>
+                    <select id="oz-create-format" :value="createFormat" @change="onCreateFormatChange">
+                        <option value="auto">From file extension</option>
+                        <option value="zip">zip</option>
+                        <option value="tar">tar</option>
+                        <option value="tar-gz">tar.gz</option>
+                        <option value="tar-bz2">tar.bz2</option>
+                        <option value="tar-xz">tar.xz</option>
+                    </select>
+                </div>
+                <div class="oz-field oz-field--checks">
+                    <label><input type="checkbox" :checked="createForce" @change="onCreateForceChange" /> Replace an existing archive</label>
+                </div>
+                <div class="oz-field oz-field--actions">
+                    <button
+                        type="button"
+                        class="oz-btn oz-btn--primary"
+                        :disabled="!canStartCreate"
+                        @click="startCreate"
+                    >
+                        {{ createLabel }}
+                    </button>
+                    <span class="oz-task__note">{{ createNote }}</span>
+                </div>
+                <div v-if="creating" class="oz-running" role="status">
+                    <span class="oz-spinner" aria-hidden="true"></span>
+                    <span>{{ createProgressText }}</span>
+                </div>
+                <p v-if="createResultText" class="oz-task__value oz-field--wide">{{ createResultText }}</p>
+            </div>
+        </section>
+
+        <div class="oz-browse">
+            <aside class="oz-tree" :data-open="treeOpen ? 'true' : 'false'" aria-label="Archive folders">
+                <header class="oz-tree__head">
+                    <span>Folders</span>
+                    <button type="button" class="oz-btn oz-btn--ghost" aria-label="Hide folder list" @click="toggleTree">«</button>
+                </header>
+                <ul class="oz-tree__list">
+                    <li
+                        v-for="node in treeRows"
+                        :key="node.key"
+                        :data-depth="node.depth"
+                        :data-current="node.path === currentPrefix ? 'true' : 'false'"
+                        @click="navigateTo(node.path)"
+                    >
+                        <button
+                            v-if="node.hasChildren"
+                            type="button"
+                            class="oz-tree__caret"
+                            :aria-expanded="node.expanded ? 'true' : 'false'"
+                            @click="toggleNode(node.path)"
+                        >
+                            {{ node.caret }}
+                        </button>
+                        <span v-else class="oz-tree__caret oz-tree__caret--leaf"></span>
+                        <span class="oz-tree__label" :title="node.path">{{ node.label }}</span>
+                    </li>
+                </ul>
+                <div v-if="!treeRows.length && !listing" class="oz-tree__empty">No folders in this archive.</div>
+            </aside>
+
+            <main class="oz-content" aria-label="Archive entries">
+                <div class="oz-crumbs">
+                    <button
+                        v-if="!treeOpen"
+                        type="button"
+                        class="oz-btn oz-btn--ghost"
+                        aria-label="Show folder list"
+                        @click="toggleTree"
+                    >
+                        »
+                    </button>
+                    <button type="button" class="oz-btn" :disabled="!currentPrefix" @click="goUp">
+                        Up
+                    </button>
+                    <nav class="oz-crumbs__path" aria-label="Archive path">
+                        <button
+                            v-for="crumb in breadcrumbs"
+                            :key="crumb.key"
+                            type="button"
+                            class="oz-crumb"
+                            :data-current="crumb.path === currentPrefix ? 'true' : 'false'"
+                            @click="navigateTo(crumb.path)"
+                        >
+                            {{ crumb.label }}
+                        </button>
+                    </nav>
+                    <span class="oz-task__grow"></span>
+                    <span class="oz-browse__count">{{ browseCountText }}</span>
+                </div>
+                <div class="oz-table-wrap">
+                    <table class="oz-table">
+                        <colgroup>
+                            <col class="oz-col-name" />
+                            <col class="oz-col-size" />
+                            <col class="oz-col-packed" />
+                            <col class="oz-col-method" />
+                            <col class="oz-col-time" />
+                            <col class="oz-col-kind" />
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th scope="col">Name</th>
+                                <th scope="col" class="oz-num">Size</th>
+                                <th scope="col" class="oz-num">Packed</th>
+                                <th scope="col">Method</th>
+                                <th scope="col">Modified</th>
+                                <th scope="col">Type</th>
+                            </tr>
+                        </thead>
+                        <tbody @keydown="onTableKey">
+                            <tr
+                                v-for="row in rows"
+                                :key="row.key"
+                                :data-focused="row.key === focusedKey ? 'true' : 'false'"
+                                :data-unsafe="row.unsafe ? 'true' : 'false'"
+                                :data-key="row.key"
+                                tabindex="0"
+                                @click="focusRow"
+                                @dblclick="activateRow"
+                                @keydown.enter.prevent="activateRow"
+                            >
+                                <td class="oz-name" :title="row.name">
+                                    <span v-if="row.isDir" class="oz-folder" aria-hidden="true">▸</span>{{ row.name }}
+                                </td>
+                                <td class="oz-num">{{ row.sizeText }}</td>
+                                <td class="oz-num">{{ row.packedText }}</td>
+                                <td class="oz-method">{{ row.methodText }}</td>
+                                <td class="oz-muted">{{ row.modifiedText }}</td>
+                                <td class="oz-kind">{{ row.kindText }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div v-if="!rows.length && !listing && !errorText" class="oz-empty">
+                        <div class="oz-empty__title">{{ emptyTitle }}</div>
+                        <p class="oz-empty__desc">{{ emptyDesc }}</p>
+                    </div>
+                    <div v-if="listing" class="oz-loading" role="status">
+                        <span class="oz-spinner" aria-hidden="true"></span>{{ loadingText }}
+                    </div>
+                    <div v-if="rowsUnsafeLine" class="oz-unsafe-note" role="note">{{ rowsUnsafeLine }}</div>
+                </div>
+            </main>
+        </div>
+
+        <footer class="oz-status" role="status">
+            <span class="oz-status__state">{{ statusText }}</span>
+            <span class="oz-status__grow"></span>
+            <span>{{ entriesText }}</span>
+            <span>{{ formatText }}</span>
+            <span>{{ totalSizeText }}</span>
+            <span :class="unsafeCount ? 'oz-status__warn' : ''">{{ unsafeText }}</span>
+            <button type="button" class="oz-status__host" @click="toggleCapabilities">Host</button>
+        </footer>
+
+        <section v-if="capabilitiesOpen" class="oz-caps" aria-label="Host capabilities">
+            <header class="oz-caps__head">
+                <span>Host capabilities</span>
+                <button type="button" class="oz-btn oz-btn--ghost" aria-label="Close capabilities" @click="toggleCapabilities">×</button>
+            </header>
+            <ul class="oz-caps__list">
+                <li v-for="row in capabilityRows" :key="row.id">
+                    <span>{{ row.title }}</span>
+                    <span>{{ row.state }}</span>
+                    <span class="oz-caps__detail">{{ row.detail }}</span>
+                </li>
+            </ul>
+        </section>
     </div>
 </template>
+
 <style>
-.oz-root {
-    min-height: 100vh;
+html,
+body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
 }
-.oz-body {
+
+.oz-root {
+    --oz-bar-height: 2.5rem;
+    --oz-status-height: 1.5rem;
+    --oz-tree-width: 13rem;
     display: flex;
     flex-direction: column;
-    gap: var(--vmz-space-4, 1rem);
-    width: min(var(--vmz-layout-max-width, 80rem), calc(100% - (var(--vmz-layout-gutter, 1rem) * 2)));
-    margin: 0 auto;
+    width: 100%;
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--vmz-surface-paper, #ffffff);
+    color: var(--vmz-text-ink, #1b1830);
+    font-family: var(--vmz-font-sans, system-ui, sans-serif);
+    font-size: 0.8125rem;
 }
-.oz-head h1 {
-    margin: 0 0 0.35rem;
-    font-size: 1.35rem;
+
+.oz-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
 }
-.oz-head p {
-    margin: 0;
-    color: var(--vmz-text-steel, var(--vmz-text-muted, #8b93a7));
-}
-.oz-policy {
-    margin-top: var(--vmz-space-3, 0.75rem);
-}
-.oz-policy__label {
-    margin: 0 0 var(--vmz-space-2, 0.5rem);
-    font-weight: 500;
-    font-size: 0.875rem;
-}
-.oz-policy__options {
+
+.oz-bar {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--vmz-space-2, 0.5rem);
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.375rem;
+    min-height: var(--oz-bar-height);
+    padding: 0.375rem 0.5rem;
+    border-bottom: 1px solid var(--vmz-line-default, #e4e0f0);
+    background: var(--vmz-surface-mist, #f8f7fc);
 }
-.oz-policy__hint {
-    margin: var(--vmz-space-2, 0.5rem) 0 0;
-    color: var(--vmz-text-steel, #8b93a7);
-    font-size: 0.875rem;
-}
-.oz-toggles {
+
+.oz-address {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--vmz-space-4, 1rem);
-    margin-top: var(--vmz-space-3, 0.75rem);
+    flex: 1 1 auto;
+    align-items: center;
+    min-width: 8rem;
+    height: 2rem;
+    padding: 0 0.5rem;
+    border: 1px solid var(--vmz-line-default, #e4e0f0);
+    border-radius: var(--vmz-radius-md, 6px);
+    background: var(--vmz-surface-paper, #ffffff);
 }
-.oz-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--vmz-space-2, 0.5rem);
-    margin-top: var(--vmz-space-3, 0.75rem);
+
+.oz-address:focus-within {
+    border-color: var(--vmz-action-primary-background, #6e56cf);
+    box-shadow: 0 0 0 2px var(--vmz-focus-ring, rgba(110, 86, 207, 0.18));
 }
-.oz-progress {
+
+.oz-address__mark {
     display: grid;
-    gap: var(--vmz-space-2, 0.5rem);
-    margin-bottom: var(--vmz-space-4, 1rem);
+    flex: 0 0 auto;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.25rem;
+    margin-right: 0.375rem;
+    border: 1px solid var(--vmz-line-default, #e4e0f0);
+    border-radius: 3px;
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.625rem;
+    text-transform: uppercase;
 }
-.oz-progress__text {
-    color: var(--vmz-text-steel, #8b93a7);
-    font-size: 0.875rem;
+
+.oz-address__input {
+    flex: 1 1 auto;
+    min-width: 4rem;
+    height: 100%;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.8125rem;
+    outline: none;
 }
-.oz-stats {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: var(--vmz-space-3, 0.75rem);
-    margin-bottom: var(--vmz-space-4, 1rem);
+
+.oz-btn {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    height: 2rem;
+    padding: 0 0.625rem;
+    border: 1px solid var(--vmz-line-default, #e4e0f0);
+    border-radius: var(--vmz-radius-md, 6px);
+    background: var(--vmz-surface-paper, #ffffff);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
 }
-.oz-stat {
-    padding: var(--vmz-space-3, 0.75rem);
-    border: 1px solid var(--vmz-line-default, #2a3140);
-    border-radius: var(--vmz-radius-md, 8px);
-    background: var(--vmz-surface-mist, var(--vmz-surface-paper, #1a1e27));
+
+.oz-btn:hover:not(:disabled) {
+    background: var(--vmz-action-secondary-hover, #f2f0f9);
 }
-.oz-stat__label {
-    color: var(--vmz-text-steel, #8b93a7);
+
+.oz-btn:disabled {
+    color: var(--vmz-text-muted, #b3aec6);
+    cursor: default;
+    opacity: 0.6;
+}
+
+.oz-btn[data-active="true"] {
+    border-color: var(--vmz-action-primary-background, #6e56cf);
+    background: var(--vmz-action-secondary-hover, #f2f0f9);
+}
+
+.oz-btn--primary {
+    border-color: var(--vmz-action-primary-background, #6e56cf);
+    background: var(--vmz-action-primary-background, #6e56cf);
+    color: var(--vmz-action-primary-foreground, #ffffff);
+}
+
+.oz-btn--primary:hover:not(:disabled) {
+    background: var(--vmz-action-primary-hover, #5a45b5);
+}
+
+.oz-btn--primary:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.oz-btn--ghost {
+    height: 1.75rem;
+    padding: 0 0.375rem;
+    border-color: transparent;
+    background: transparent;
+    color: var(--vmz-text-tertiary, #6b6785);
+}
+
+.oz-btn--ghost:hover:not(:disabled) {
+    background: var(--vmz-action-secondary-hover, #f2f0f9);
+}
+
+.oz-bar__close {
+    margin-left: 0.125rem;
+    font-size: 1rem;
+}
+
+.oz-banner {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.375rem 0.5rem;
+    border-bottom: 1px solid var(--vmz-status-danger-border, #f0c4c1);
+    background: var(--vmz-status-danger-background, #fff3f2);
+    color: var(--vmz-status-danger-foreground, #b42318);
     font-size: 0.75rem;
 }
-.oz-stat__value {
-    margin-top: 0.25rem;
-    font-variant-numeric: tabular-nums;
-    font-size: 1.1rem;
+
+.oz-banner__text {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
-.oz-note {
-    margin: 0;
-    color: var(--vmz-text-steel, #8b93a7);
+
+.oz-task {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    max-height: 46vh;
+    border-bottom: 1px solid var(--vmz-line-default, #e4e0f0);
+    background: var(--vmz-surface-page, #fbfaff);
 }
-@media (max-width: 900px) {
-    .oz-stats {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+
+.oz-task__head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 2rem;
+    padding: 0 0.5rem;
+    border-bottom: 1px solid var(--vmz-line-subtle, #f0edf8);
+}
+
+.oz-task__title {
+    font-weight: 600;
+}
+
+.oz-task__hint {
+    overflow: hidden;
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.71875rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.oz-task__grow {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.oz-task__body {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 0.5rem 0.75rem;
+    padding: 0.625rem 0.75rem;
+    overflow: auto;
+}
+
+.oz-task__scope {
+    display: flex;
+    grid-column: 1 / -1;
+    align-items: baseline;
+    gap: 0.375rem;
+    min-width: 0;
+}
+
+.oz-task__label {
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+}
+
+.oz-task__value {
+    font-weight: 500;
+}
+
+.oz-task__note {
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.71875rem;
+}
+
+.oz-field {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.oz-field--wide {
+    grid-column: 1 / -1;
+}
+
+.oz-field > label,
+.oz-field > span {
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.6875rem;
+}
+
+.oz-field input,
+.oz-field select {
+    width: 100%;
+    min-width: 0;
+    height: 1.75rem;
+    padding: 0 0.375rem;
+    border: 1px solid var(--vmz-line-default, #e4e0f0);
+    border-radius: var(--vmz-radius-sm, 4px);
+    background: var(--vmz-surface-paper, #ffffff);
+    color: inherit;
+    font: inherit;
+    font-size: 0.75rem;
+}
+
+.oz-field--policy,
+.oz-field--checks,
+.oz-field--actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem 0.75rem;
+}
+
+.oz-field--checks label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--vmz-text-ink, #1b1830);
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+.oz-policy {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.oz-policy .oz-btn {
+    height: 1.75rem;
+    padding: 0 0.5rem;
+    font-size: 0.75rem;
+}
+
+.oz-running {
+    display: flex;
+    grid-column: 1 / -1;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.75rem;
+}
+
+.oz-spinner {
+    width: 0.875rem;
+    height: 0.875rem;
+    border: 2px solid var(--vmz-line-default, #e4e0f0);
+    border-top-color: var(--vmz-action-primary-background, #6e56cf);
+    border-radius: 50%;
+    animation: oz-spin 0.8s linear infinite;
+}
+
+@keyframes oz-spin {
+    to {
+        transform: rotate(360deg);
     }
 }
-@media (max-width: 560px) {
-    .oz-stats {
-        grid-template-columns: 1fr;
+
+.oz-result {
+    display: flex;
+    grid-column: 1 / -1;
+    flex-direction: column;
+    min-width: 0;
+    border: 1px solid var(--vmz-line-default, #e4e0f0);
+    border-radius: var(--vmz-radius-sm, 4px);
+    background: var(--vmz-surface-paper, #ffffff);
+}
+
+.oz-result__head {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    height: 1.875rem;
+    padding: 0 0.5rem;
+    border-bottom: 1px solid var(--vmz-line-subtle, #f0edf8);
+    font-size: 0.75rem;
+}
+
+.oz-result table {
+    max-height: 12rem;
+    overflow: auto;
+}
+
+.oz-source {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.oz-source input {
+    flex: 1 1 auto;
+}
+
+.oz-source-list {
+    display: flex;
+    grid-column: 1 / -1;
+    flex-direction: column;
+    gap: 0.125rem;
+    max-height: 6rem;
+    margin: 0;
+    padding: 0;
+    overflow: auto;
+    list-style: none;
+}
+
+.oz-source-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    height: 1.5rem;
+    padding: 0 0.25rem 0 0.375rem;
+    border: 1px solid var(--vmz-line-subtle, #f0edf8);
+    border-radius: 3px;
+    background: var(--vmz-surface-paper, #ffffff);
+}
+
+.oz-source-list__path {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.75rem;
+}
+
+.oz-browse {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.oz-tree {
+    display: flex;
+    flex: 0 0 var(--oz-tree-width);
+    flex-direction: column;
+    min-height: 0;
+    border-right: 1px solid var(--vmz-line-default, #e4e0f0);
+    background: var(--vmz-surface-mist, #f8f7fc);
+}
+
+.oz-tree[data-open="false"] {
+    flex-basis: 0;
+    overflow: hidden;
+    border-right: 0;
+    opacity: 0;
+}
+
+.oz-tree__head {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    height: 1.875rem;
+    padding: 0 0.25rem 0 0.5rem;
+    border-bottom: 1px solid var(--vmz-line-subtle, #f0edf8);
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+}
+
+.oz-tree__list {
+    flex: 1 1 auto;
+    margin: 0;
+    padding: 0.25rem 0;
+    overflow: auto;
+    list-style: none;
+}
+
+.oz-tree__list li {
+    display: flex;
+    align-items: center;
+    gap: 0.125rem;
+    height: 1.5rem;
+    padding-right: 0.375rem;
+    cursor: default;
+}
+
+.oz-tree__list li:hover {
+    background: var(--vmz-action-secondary-hover, #f2f0f9);
+}
+
+.oz-tree__list li[data-current="true"] {
+    background: var(--vmz-action-primary-background, #6e56cf);
+    color: #ffffff;
+}
+
+.oz-tree__list li[data-depth="1"] {
+    padding-left: 0.875rem;
+}
+
+.oz-tree__list li[data-depth="2"] {
+    padding-left: 1.625rem;
+}
+
+.oz-tree__list li[data-depth="3"] {
+    padding-left: 2.375rem;
+}
+
+.oz-tree__caret {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 1rem;
+    height: 1rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.625rem;
+    cursor: pointer;
+}
+
+.oz-tree__caret--leaf {
+    opacity: 0;
+}
+
+.oz-tree__label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.75rem;
+}
+
+.oz-tree__empty {
+    padding: 0.5rem;
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.71875rem;
+}
+
+.oz-content {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+.oz-crumbs {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.25rem;
+    height: 1.875rem;
+    padding: 0 0.5rem;
+    border-bottom: 1px solid var(--vmz-line-subtle, #f0edf8);
+    background: var(--vmz-surface-paper, #ffffff);
+}
+
+.oz-crumbs .oz-btn {
+    height: 1.5rem;
+    padding: 0 0.375rem;
+    font-size: 0.71875rem;
+}
+
+.oz-crumbs__path {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.oz-crumb {
+    min-width: 0;
+    max-width: 12rem;
+    height: 1.375rem;
+    padding: 0 0.25rem;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--vmz-text-ink, #1b1830);
+    font: inherit;
+    font-size: 0.71875rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.oz-crumb:hover {
+    background: var(--vmz-action-secondary-hover, #f2f0f9);
+}
+
+.oz-crumb[data-current="true"] {
+    color: var(--vmz-text-tertiary, #6b6785);
+    cursor: default;
+}
+
+.oz-browse__count {
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.71875rem;
+    white-space: nowrap;
+}
+
+.oz-table-wrap {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+}
+
+.oz-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 0.75rem;
+}
+
+.oz-col-name {
+    width: 36%;
+}
+
+.oz-col-size {
+    width: 6.5rem;
+}
+
+.oz-col-packed {
+    width: 6.5rem;
+}
+
+.oz-col-method {
+    width: 7rem;
+}
+
+.oz-col-time {
+    width: 8.5rem;
+}
+
+.oz-col-kind {
+    width: 5.5rem;
+}
+
+.oz-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: 1.625rem;
+    padding: 0 0.5rem;
+    border-bottom: 1px solid var(--vmz-line-default, #e4e0f0);
+    background: var(--vmz-surface-mist, #f8f7fc);
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-weight: 500;
+    text-align: left;
+    white-space: nowrap;
+}
+
+.oz-table tbody tr {
+    height: 1.625rem;
+    cursor: default;
+    outline: none;
+}
+
+.oz-table tbody tr:hover {
+    background: var(--vmz-action-secondary-hover, #f2f0f9);
+}
+
+.oz-table tbody tr[data-focused="true"] {
+    background: var(--vmz-action-primary-background, #6e56cf);
+    color: #ffffff;
+}
+
+.oz-table tbody tr[data-focused="true"] .oz-muted,
+.oz-table tbody tr[data-focused="true"] .oz-method,
+.oz-table tbody tr[data-focused="true"] .oz-kind {
+    color: #ffffff;
+}
+
+.oz-table tbody tr[data-unsafe="true"] .oz-kind {
+    color: var(--vmz-status-danger-foreground, #b42318);
+}
+
+.oz-table tbody tr[data-focused="true"][data-unsafe="true"] .oz-kind {
+    color: #ffffff;
+}
+
+.oz-table td {
+    padding: 0 0.5rem;
+    border-bottom: 1px solid var(--vmz-line-subtle, #f0edf8);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.oz-table th.oz-num,
+.oz-table td.oz-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.oz-name {
+    font-weight: 500;
+}
+
+.oz-folder {
+    margin-right: 0.25rem;
+    color: var(--vmz-text-tertiary, #6b6785);
+}
+
+.oz-table tbody tr[data-focused="true"] .oz-folder {
+    color: #ffffff;
+}
+
+.oz-muted,
+.oz-method,
+.oz-kind {
+    color: var(--vmz-text-tertiary, #6b6785);
+}
+
+.oz-kind {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+}
+
+.oz-table--compact thead th {
+    position: static;
+    height: 1.5rem;
+}
+
+.oz-table--compact tbody tr {
+    height: 1.5rem;
+}
+
+.oz-empty,
+.oz-loading {
+    position: absolute;
+    inset: 1.875rem 0 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    padding: 2rem;
+    color: var(--vmz-text-tertiary, #6b6785);
+    text-align: center;
+    pointer-events: none;
+}
+
+.oz-empty__title {
+    color: var(--vmz-text-ink, #1b1830);
+    font-size: 0.9375rem;
+    font-weight: 600;
+}
+
+.oz-empty__desc {
+    max-width: 30rem;
+    margin: 0;
+}
+
+.oz-loading {
+    flex-direction: row;
+    gap: 0.5rem;
+}
+
+.oz-unsafe-note {
+    position: sticky;
+    bottom: 0;
+    padding: 0.25rem 0.5rem;
+    border-top: 1px solid var(--vmz-status-danger-border, #f0c4c1);
+    background: var(--vmz-status-danger-background, #fff3f2);
+    color: var(--vmz-status-danger-foreground, #b42318);
+    font-size: 0.71875rem;
+}
+
+.oz-status {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.75rem;
+    height: var(--oz-status-height);
+    padding: 0 0.5rem;
+    border-top: 1px solid var(--vmz-line-default, #e4e0f0);
+    background: var(--vmz-surface-mist, #f8f7fc);
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.71875rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.oz-status__state {
+    max-width: 34%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--vmz-text-ink, #1b1830);
+}
+
+.oz-status__grow {
+    flex: 1 1 auto;
+}
+
+.oz-status__warn {
+    color: var(--vmz-status-danger-foreground, #b42318);
+}
+
+.oz-status__host {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.oz-caps {
+    position: absolute;
+    right: 0.5rem;
+    bottom: calc(var(--oz-status-height) + 0.5rem);
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    width: min(24rem, calc(100% - 1rem));
+    max-height: 60vh;
+    border: 1px solid var(--vmz-line-default, #e4e0f0);
+    border-radius: var(--vmz-radius-md, 6px);
+    background: var(--vmz-surface-paper, #ffffff);
+    box-shadow: 0 10px 30px rgba(27, 24, 48, 0.18);
+    overflow: auto;
+}
+
+.oz-caps__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 2rem;
+    padding: 0 0.5rem;
+    border-bottom: 1px solid var(--vmz-line-default, #e4e0f0);
+    background: var(--vmz-surface-mist, #f8f7fc);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.oz-caps__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0.5rem;
+    list-style: none;
+}
+
+.oz-caps__list li {
+    display: grid;
+    grid-template-columns: minmax(7rem, 1fr) auto;
+    gap: 0.125rem 0.5rem;
+    font-size: 0.71875rem;
+}
+
+.oz-caps__detail {
+    grid-column: 1 / -1;
+    color: var(--vmz-text-tertiary, #6b6785);
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 1000px) {
+    .oz-tree {
+        display: none;
+    }
+}
+
+@media (max-width: 900px) {
+    .oz-col-method,
+    .oz-table th:nth-child(4),
+    .oz-table td:nth-child(4) {
+        display: none;
+    }
+
+    .oz-col-name {
+        width: 44%;
+    }
+}
+
+@media (max-width: 760px) {
+    .oz-col-time,
+    .oz-table th:nth-child(5),
+    .oz-table td:nth-child(5),
+    .oz-col-packed,
+    .oz-table th:nth-child(3),
+    .oz-table td:nth-child(3) {
+        display: none;
+    }
+
+    .oz-col-size {
+        width: 5rem;
+    }
+
+    .oz-col-kind {
+        width: 4.5rem;
+    }
+
+    .oz-btn {
+        padding: 0 0.375rem;
+    }
+
+    .oz-status__state {
+        max-width: 52%;
     }
 }
 </style>
+
 <script client>
-export default class IndexPage {
-    title = "OpenZipper";
-    lead = "Inspect, extract and verify zip and tar archives. Path safety and bomb guards run before anything is written.";
-    navItems = [{ id: "archive", title: "Archive", href: "/" }];
-    openCardTitle = "Archive";
-    openCardDesc = "Choose an archive, a destination directory and how existing files are handled.";
-    archiveLabel = "Archive file";
-    archiveDesc = "Absolute path to a .zip, .tar, .tar.gz, .tar.bz2 or .tar.xz file.";
+/**
+ * Zipper page.
+ *
+ * Every archive read, write and check runs in the Rust crates through the host
+ * IPC channel. The page keeps the addressed archive, the current folder, the
+ * task form and the rendered rows. It never invents entries, sizes or results.
+ */
+export default class ZipperPage {
     archivePlaceholder = "C:\\Downloads\\example.zip";
-    destinationLabel = "Destination directory";
-    destinationDesc = "Files are written below this directory only. Parent traversal is rejected.";
     destinationPlaceholder = "C:\\Downloads\\extracted";
-    policyLabel = "Existing files";
+    sourcePlaceholder = "C:\\Downloads\\a.txt";
+    createDestinationPlaceholder = "C:\\Downloads\\bundle.zip";
+    emptyTitle = "No archive open";
+    emptyDesc = "Type the path of a zip, tar or 7z archive and press Enter. Entries appear here before anything is written.";
+    loadingText = "Reading the archive index…";
+    verifyLabel = "Verify";
+    taskCloseLabel = "Close";
     policyOptions = [
         { value: "error", label: "Fail" },
         { value: "skip", label: "Skip" },
         { value: "rename", label: "Rename" },
     ];
-    policyHint = "The default refuses to replace anything. Skip and rename must be chosen explicitly.";
-    dryRunLabel = "Preview only (dry run)";
-    recurseLabel = "Extract nested archives";
-    listLabel = "List entries";
-    extractLabel = "Extract";
-    closeLabel = "Close";
-    errorTitle = "Operation failed";
-    statusTitle = "Status";
-    entriesCardTitle = "Entries";
-    entriesCardDesc = "Member names, sizes and path-safety annotations.";
-    entryCountLabel = "Entries";
-    totalSizeLabel = "Uncompressed";
-    unsafeCountLabel = "Unsafe";
-    formatLabel = "Format";
-    emptyTitle = "No archive loaded";
-    emptyDesc = "List an archive to inspect its entries.";
-    loadingLabel = "Working";
-    loadingText = "Reading archive…";
-    resultCardTitle = "Extraction";
-    resultCardDesc = "What the last extraction wrote, skipped or renamed.";
-    writtenLabel = "Files";
-    directoriesLabel = "Directories";
-    bytesLabel = "Bytes written";
-    collisionLabel = "Skipped / renamed";
-    resultEmptyTitle = "Nothing extracted yet";
-    resultEmptyDesc = "Run an extraction to see per-entry results.";
-    capabilitiesCardTitle = "Capabilities";
-    capabilitiesCardDesc = "Formats, guards and platform-specific features on this host.";
-    entryColumns = [
-        { id: "index", title: "#", align: "right" },
-        { id: "name", title: "Name" },
-        { id: "kind", title: "Kind" },
-        { id: "size", title: "Size", align: "right" },
-        { id: "safety", title: "Safety" },
-    ];
-    resultColumns = [
-        { id: "action", title: "Action" },
-        { id: "name", title: "Entry" },
-        { id: "bytes", title: "Bytes", align: "right" },
-        { id: "renamed", title: "Renamed to" },
-    ];
-    capabilityColumns = [
-        { id: "capability", title: "Capability" },
-        { id: "state", title: "State" },
-        { id: "detail", title: "Detail" },
-    ];
 
     archivePath = "";
+    listingPath = "";
     destination = "";
     overwrite = "error";
     dryRun = false;
     recurse = false;
-    working = false;
     listing = false;
     extracting = false;
-    loadingCapabilities = false;
-    error = "";
-    status = "Ready.";
-    progressPercent = 0;
-    progressText = "";
+    verifying = false;
+    creating = false;
+    errorText = "";
+    canRetryList = false;
+    statusText = "Ready";
+    entriesText = "0 entries";
     formatText = "—";
-    entryCountText = "—";
     totalSizeText = "—";
-    unsafeCountText = "—";
-    writtenText = "—";
-    directoriesText = "—";
-    bytesText = "—";
-    collisionText = "—";
-    nestedLine = "";
-    entryRows = [];
-    resultRows = [];
+    unsafeText = "unsafe 0";
+    unsafeCount = 0;
+    hostText = "";
+    browseCountText = "";
+    rowsUnsafeLine = "";
+    currentPrefix = "";
+    breadcrumbs = [];
+    focusedKey = "";
+    entries = [];
+    rows = [];
+    treeNodes = [];
+    treeRows = [];
+    treeOpen = true;
+    expandedMap = {};
+    capabilitiesOpen = false;
     capabilityRows = [];
+    loadingCapabilities = false;
+    canExtract = false;
+    canVerify = false;
+    canStartExtract = false;
+    canAddSource = false;
+    canStartCreate = false;
+
+    taskView = "";
+    taskTitle = "";
+    taskHint = "";
+    extractScopeText = "";
+    extractScopeNote = "";
+    extractImpactText = "";
+    extractLabel = "Start extraction";
+    extractProgressText = "";
+    extractResultText = "";
+    extractResultToggle = "Show details";
+    extractResultOpen = false;
+    extractReportRows = [];
+
+    sourceDraft = "";
+    createSources = [];
+    createDestination = "";
+    createFormat = "auto";
+    createForce = false;
+    createLabel = "Create archive";
+    createNote = "";
+    createProgressText = "";
+    createResultText = "";
+
+    verifyText = "";
     _seq = 0;
 
     onMount() {
         this.installHostBridge();
+        this.refreshStatus();
         if (this.bridge()) this.requestCapabilities();
+        setTimeout(() => {
+            const input = document.getElementById("oz-archive");
+            if (input && !this.archivePath) input.focus();
+        }, 0);
     }
 
     bridge() {
         const webview = globalThis.chrome && globalThis.chrome.webview;
         return webview && webview.postMessage ? webview : null;
-    }
-
-    onArchiveInput(e) {
-        this.archivePath = e && e.target ? String(e.target.value || "") : "";
-    }
-
-    onDestinationInput(e) {
-        this.destination = e && e.target ? String(e.target.value || "") : "";
-    }
-
-    onDryRunChange(checked) {
-        this.dryRun = !!checked;
-    }
-
-    onRecurseChange(checked) {
-        this.recurse = !!checked;
-    }
-
-    selectPolicy(value) {
-        this.overwrite = String(value || "error");
     }
 
     installHostBridge() {
@@ -404,98 +1305,307 @@ export default class IndexPage {
             if (typeof data === "string") {
                 try {
                     data = JSON.parse(data);
-                } catch {
+                }
+                catch {
                     return;
                 }
             }
             if (!data || typeof data !== "object") return;
-            if (data.type === "capabilitiesResult") {
-                this.applyCapabilities(data.capabilities || {});
-            } else if (data.type === "capabilitiesError") {
-                this.loadingCapabilities = false;
-                this.setError(String(data.message || "unknown error"));
-            } else if (data.type === "listResult") {
-                this.listing = false;
-                this.error = "";
-                this.applyListing(data.listing || {});
-                this.status = "Listing ready.";
-            } else if (data.type === "listError") {
-                this.listing = false;
-                this.setError(String(data.message || "unknown error"));
-            } else if (data.type === "extractResult") {
-                this.finishExtract(data.report || {});
-            } else if (data.type === "extractError") {
-                this.failExtract(String(data.message || "unknown error"));
-            }
+            if (data.type === "capabilitiesResult") this.applyCapabilities(data.capabilities || {});
+            else if (data.type === "capabilitiesError") this.failCapabilities(String(data.message || "unknown error"));
+            else if (data.type === "listResult") this.applyListing(data.listing || {});
+            else if (data.type === "listError") this.failList(String(data.message || "unknown error"));
+            else if (data.type === "extractResult") this.finishExtract(data.report || {});
+            else if (data.type === "extractError") this.failExtract(String(data.message || "unknown error"));
+            else if (data.type === "testResult") this.finishVerify(data.report || {});
+            else if (data.type === "testError") this.failVerify(String(data.message || "unknown error"));
+            else if (data.type === "createResult") this.finishCreate(data.report || {});
+            else if (data.type === "createError") this.failCreate(String(data.message || "unknown error"));
         });
     }
 
-    setError(message) {
-        this.error = message;
-        this.status = "";
-        this.working = false;
-        this.progressText = "";
-    }
-
-    post(msg) {
+    post(message) {
         const webview = this.bridge();
         if (!webview) {
             this.setError("Native bridge unavailable (not running inside the WebView2 host).");
             return false;
         }
-        webview.postMessage(JSON.stringify(msg));
+        webview.postMessage(JSON.stringify(message));
         return true;
     }
 
-    validate() {
+    setError(message) {
+        this.errorText = message;
+        this.statusText = "";
+        this.canRetryList = false;
+    }
+
+    dismissError() {
+        this.errorText = "";
+        this.canRetryList = false;
+        this.refreshStatus();
+    }
+
+    onArchiveInput(e) {
+        this.archivePath = e && e.target ? String(e.target.value || "") : "";
+        this.refreshActions();
+        this.refreshStatus();
+    }
+
+    onArchiveKey(e) {
+        if (!e) return;
+        if (e.key === "Enter") {
+            e.preventDefault();
+            this.openArchive();
+        }
+    }
+
+    onDestinationInput(e) {
+        this.destination = e && e.target ? String(e.target.value || "") : "";
+        this.refreshExtractHint();
+        this.refreshTaskActions();
+    }
+
+    onDryRunChange(e) {
+        this.dryRun = !!(e && e.target && e.target.checked);
+        this.refreshExtractHint();
+    }
+
+    onRecurseChange(e) {
+        this.recurse = !!(e && e.target && e.target.checked);
+        this.refreshExtractHint();
+    }
+
+    selectPolicy(value) {
+        this.overwrite = String(value || "error");
+        this.refreshExtractHint();
+    }
+
+    onSourceDraftInput(e) {
+        this.sourceDraft = e && e.target ? String(e.target.value || "") : "";
+        this.refreshTaskActions();
+    }
+
+    onSourceKey(e) {
+        if (!e) return;
+        if (e.key === "Enter") {
+            e.preventDefault();
+            this.addSource();
+        }
+    }
+
+    onCreateDestinationInput(e) {
+        this.createDestination = e && e.target ? String(e.target.value || "") : "";
+        this.refreshTaskActions();
+    }
+
+    onCreateFormatChange(e) {
+        this.createFormat = e && e.target ? String(e.target.value || "auto") : "auto";
+    }
+
+    onCreateForceChange(e) {
+        this.createForce = !!(e && e.target && e.target.checked);
+    }
+
+    openArchive() {
         const archive = (this.archivePath || "").trim();
         if (!archive) {
-            this.setError("Enter the path of an archive first.");
-            return null;
+            this.archivePath = "";
+            this.errorText = "";
+            this.listingPath = "";
+            this.entries = [];
+            this.refreshBrowser();
+            this.statusText = "Ready";
+            this.refreshStatus();
+            return;
         }
-        return archive;
-    }
-
-    requestCapabilities() {
-        this._seq += 1;
-        this.loadingCapabilities = true;
-        if (!this.post({ type: "capabilities", id: this._seq })) this.loadingCapabilities = false;
-    }
-
-    refreshListing() {
-        const archive = this.validate();
-        if (!archive) return;
         this._seq += 1;
         this.listing = true;
-        this.working = true;
-        this.progressPercent = 0;
-        this.progressText = "Reading the archive index…";
-        this.error = "";
-        this.status = "Reading archive…";
-        if (!this.post({ type: "list", id: this._seq, path: archive })) {
-            this.listing = false;
-            this.working = false;
+        this.errorText = "";
+        this.canRetryList = false;
+        this.statusText = "Reading archive…";
+        this.listingPath = "";
+        this.refreshStatus();
+        if (!this.post({ type: "list", id: this._seq, path: archive })) this.listing = false;
+    }
+
+    applyListing(listing) {
+        this.listing = false;
+        this.errorText = "";
+        this.canRetryList = false;
+        this.listingPath = String(listing.path || this.archivePath.trim());
+        const format = String(listing.format || "");
+        this.formatText = format || "—";
+        this.totalSizeText = this.formatBytes(Number(listing.totalSizeBytes) || 0);
+        this.unsafeCount = Number(listing.unsafeEntryCount) || 0;
+        this.unsafeText = `unsafe ${this.unsafeCount}`;
+        this.entries = Array.isArray(listing.entries) ? listing.entries : [];
+        this.currentPrefix = "";
+        this.expandedMap = {};
+        this.focusedKey = "";
+        this.rebuildTree();
+        this.refreshBrowser();
+        this.statusText = `${this.entriesText} ready.`;
+        this.canExtract = true;
+        this.canVerify = true;
+        this.refreshActions();
+        this.refreshStatus();
+    }
+
+    failList(message) {
+        this.listing = false;
+        this.canExtract = false;
+        this.canVerify = false;
+        this.setError(message);
+        this.canRetryList = true;
+        this.refreshStatus();
+    }
+
+    verifyArchive() {
+        const archive = (this.archivePath || "").trim();
+        if (!archive) return;
+        this._seq += 1;
+        this.verifying = true;
+        this.errorText = "";
+        this.statusText = "Verifying every entry…";
+        this.refreshStatus();
+        if (!this.post({ type: "test", id: this._seq, path: archive })) this.verifying = false;
+    }
+
+    finishVerify(report) {
+        this.verifying = false;
+        this.errorText = "";
+        const count = Number(report.entryCount) || 0;
+        const ok = report.ok === true;
+        this.verifyText = ok
+            ? `Verified ${count} entries, ${this.formatBytes(Number(report.totalBytes) || 0)}.`
+            : `Verification reported a problem across ${count} entries.`;
+        this.statusText = this.verifyText;
+        this.refreshStatus();
+    }
+
+    failVerify(message) {
+        this.verifying = false;
+        this.setError(message);
+        this.refreshStatus();
+    }
+
+    openExtractTask() {
+        if (!this.entries.length) return;
+        this.taskView = "extract";
+        this.taskTitle = "Extract archive";
+        this.taskHint = this.listingPath ? this.basename(this.listingPath) : "";
+        this.taskCloseLabel = "Close";
+        this.extractReportRows = [];
+        this.extractResultText = "";
+        this.refreshExtractHint();
+        this.refreshTaskActions();
+        setTimeout(() => {
+            const input = document.getElementById("oz-destination");
+            if (input) input.focus();
+        }, 0);
+    }
+
+    toggleCreateTask() {
+        if (this.taskView === "create") {
+            this.closeTask();
+            return;
         }
+        this.taskView = "create";
+        this.taskTitle = "Create archive";
+        this.taskHint = "Compression runs in the Rust codec, not through extraction.";
+        this.taskCloseLabel = "Close";
+        this.createResultText = "";
+        this.refreshCreateHint();
+        this.refreshTaskActions();
+        setTimeout(() => {
+            const input = document.getElementById("oz-source");
+            if (input) input.focus();
+        }, 0);
+    }
+
+    closeTask() {
+        if (this.extracting || this.creating) return;
+        this.taskView = "";
+        this.refreshTaskActions();
+    }
+
+    refreshExtractHint() {
+        if (this.taskView !== "extract") {
+            this.refreshActions();
+            return;
+        }
+        const count = this.entries.length;
+        this.extractScopeText = `${count} entries`;
+        this.extractScopeNote = "This host extracts the whole archive, so per-entry selection is not offered.";
+        this.extractLabel = this.dryRun
+            ? "Preview paths"
+            : (this.overwrite === "error" ? "Extract, refusing conflicts" : `Extract, ${this.overwrite === "skip" ? "skipping" : "renaming"} conflicts`);
+        const parts = [`${this.formatBytes(Number(this.totalSizeBytesValue()) || 0)} uncompressed`];
+        if (this.unsafeCount) parts.push(`${this.unsafeCount} unsafe entries rejected`);
+        if (this.recurse) parts.push("nested archives followed");
+        if (!(this.destination || "").trim()) parts.push("destination required");
+        this.extractImpactText = parts.join(" · ");
+        this.refreshActions();
+        this.refreshTaskActions();
+    }
+
+    totalSizeBytesValue() {
+        let total = 0;
+        for (const entry of this.entries) total += Number(entry.sizeBytes) || 0;
+        return total;
+    }
+
+    refreshCreateHint() {
+        this.createLabel = this.createSourceCountText();
+        this.createNote = "Format is inferred from the destination extension unless one is chosen.";
+        this.refreshActions();
+        this.refreshTaskActions();
+    }
+
+    createSourceCountText() {
+        const count = this.createSources.length;
+        if (!count) return "Create archive";
+        return `Create archive (${count} ${count === 1 ? "source" : "sources"})`;
+    }
+
+    addSource() {
+        const path = (this.sourceDraft || "").trim();
+        if (!path) return;
+        if (this.createSources.some((item) => item.path === path)) {
+            this.sourceDraft = "";
+            return;
+        }
+        this.createSources = this.createSources.concat([{ key: `${this.createSources.length}:${path}`, path }]);
+        this.sourceDraft = "";
+        this.refreshCreateHint();
+    }
+
+    removeSource(key) {
+        this.createSources = this.createSources.filter((item) => item.key !== key);
+        this.refreshCreateHint();
     }
 
     startExtract() {
-        const archive = this.validate();
-        if (!archive) return;
+        const archive = (this.archivePath || "").trim();
         const destination = (this.destination || "").trim();
-        if (!destination) {
-            this.setError("Enter a destination directory before extracting.");
+        if (!archive || !destination) {
+            this.setError("An archive path and a destination directory are required.");
+            this.refreshStatus();
             return;
         }
         this._seq += 1;
         this.extracting = true;
-        this.working = true;
-        this.progressPercent = 0;
-        this.progressText = this.dryRun
+        this.taskCloseLabel = "Running";
+        this.errorText = "";
+        this.extractReportRows = [];
+        this.extractResultText = "";
+        this.statusText = this.dryRun ? "Previewing paths…" : "Extracting…";
+        this.extractProgressText = this.dryRun
             ? "Validating paths and limits without writing…"
-            : "Extracting, with path and bomb checks on every entry…";
-        this.error = "";
-        this.status = this.dryRun ? "Dry run in progress…" : "Extracting…";
-        this.resultRows = [];
+            : "Writing entries with path and bomb checks on every file…";
+        this.refreshTaskActions();
+        this.refreshStatus();
         if (!this.post({
             type: "extract",
             id: this._seq,
@@ -504,88 +1614,418 @@ export default class IndexPage {
             overwrite: this.overwrite,
             dryRun: this.dryRun,
             recurse: this.recurse,
-        })) {
-            this.extracting = false;
-            this.working = false;
-        }
+        })) this.extracting = false;
     }
 
     finishExtract(report) {
         this.extracting = false;
-        this.working = false;
-        this.progressPercent = 100;
-        this.progressText = "Completed.";
-        this.error = "";
+        this.taskCloseLabel = "Close";
+        this.errorText = "";
         const entries = Array.isArray(report.entries) ? report.entries : [];
-        this.writtenText = String(Number(report.written) || 0);
-        this.directoriesText = String(Number(report.directories) || 0);
-        this.bytesText = this.formatBytes(Number(report.bytesWritten) || 0);
-        this.collisionText = `${Number(report.skipped) || 0} / ${Number(report.renamed) || 0}`;
-        const nested = Number(report.nestedArchives) || 0;
-        this.nestedLine = nested > 0 ? `${nested} nested archive(s) extracted below the archive file.` : "";
-        this.resultRows = entries
-            .filter((entry) => entry.action !== "directory")
+        this.extractReportRows = entries
+            .filter((entry) => String(entry.action || "") !== "directory")
             .map((entry, index) => ({
-                id: String(index),
-                cells: [
-                    String(entry.action || ""),
-                    String(entry.name || ""),
-                    this.formatBytes(Number(entry.bytesWritten) || 0),
-                    String(entry.renamedTo || ""),
-                ],
+                key: `${index}:${entry.name || ""}`,
+                action: this.actionText(String(entry.action || "")),
+                name: String(entry.name || ""),
+                bytes: this.formatBytes(Number(entry.bytesWritten) || 0),
+                renamed: String(entry.renamedTo || ""),
             }));
-        this.status = report.dryRun ? "Dry run complete. Nothing was written." : "Extraction complete.";
+        const written = Number(report.written) || 0;
+        const skipped = Number(report.skipped) || 0;
+        const renamed = Number(report.renamed) || 0;
+        const directories = Number(report.directories) || 0;
+        const nested = Number(report.nestedArchives) || 0;
+        const bytes = this.formatBytes(Number(report.bytesWritten) || 0);
+        this.extractResultText = [
+            `${written} written`,
+            `${directories} directories`,
+            `${bytes} written`,
+            skipped ? `${skipped} skipped` : "",
+            renamed ? `${renamed} renamed` : "",
+            nested ? `${nested} nested archives` : "",
+        ].filter(Boolean).join(" · ");
+        this.extractResultOpen = true;
+        this.extractResultToggle = "Hide details";
+        this.statusText = report.dryRun === true
+            ? "Preview complete. Nothing was written."
+            : "Extraction complete.";
+        this.refreshTaskActions();
+        this.refreshStatus();
     }
 
     failExtract(message) {
         this.extracting = false;
-        this.working = false;
-        this.progressPercent = 0;
-        this.progressText = "";
+        this.taskCloseLabel = "Close";
+        this.extractProgressText = "";
         this.setError(message);
+        this.refreshTaskActions();
+        this.refreshStatus();
     }
 
-    applyListing(listing) {
-        this.formatText = String(listing.format || "—");
-        this.entryCountText = String(Number(listing.entryCount) || 0);
-        this.totalSizeText = this.formatBytes(Number(listing.totalSizeBytes) || 0);
-        this.unsafeCountText = String(Number(listing.unsafeEntryCount) || 0);
-        const entries = Array.isArray(listing.entries) ? listing.entries : [];
-        this.entryRows = entries.map((entry) => ({
-            id: String(entry.index),
-            cells: [
-                String(entry.index),
-                String(entry.name || ""),
-                String(entry.kind || ""),
-                this.formatBytes(Number(entry.sizeBytes) || 0),
-                entry.safe ? "safe" : `unsafe: ${entry.unsafeReason || "rejected"}`,
-            ],
+    toggleExtractResult() {
+        this.extractResultOpen = !this.extractResultOpen;
+        this.extractResultToggle = this.extractResultOpen ? "Hide details" : "Show details";
+    }
+
+    async copyExtractResult() {
+        if (!this.extractResultText) return;
+        try {
+            await navigator.clipboard.writeText(this.extractResultText);
+            this.statusText = "Extraction summary copied.";
+        }
+        catch {
+            this.setError("Clipboard access was refused by the host.");
+        }
+        this.refreshStatus();
+    }
+
+    startCreate() {
+        const destination = (this.createDestination || "").trim();
+        if (!destination || !this.createSources.length) {
+            this.setError("At least one source path and an archive destination are required.");
+            this.refreshStatus();
+            return;
+        }
+        this._seq += 1;
+        this.creating = true;
+        this.taskCloseLabel = "Running";
+        this.errorText = "";
+        this.createResultText = "";
+        this.createProgressText = "Compressing sources in process…";
+        this.statusText = "Creating archive…";
+        this.refreshTaskActions();
+        this.refreshStatus();
+        const message = {
+            type: "create",
+            id: this._seq,
+            destination,
+            sources: this.createSources.map((item) => item.path),
+            force: this.createForce,
+        };
+        if (this.createFormat !== "auto") message.format = this.createFormat;
+        if (!this.post(message)) this.creating = false;
+    }
+
+    finishCreate(report) {
+        this.creating = false;
+        this.taskCloseLabel = "Close";
+        this.errorText = "";
+        this.createProgressText = "";
+        const archive = String(report.archive || "");
+        this.createResultText = `${this.formatBytes(Number(report.archiveBytes) || 0)} in ${archive} (${Number(report.entryCount) || 0} entries, ${String(report.format || "")}).`;
+        this.statusText = this.createResultText;
+        this.refreshTaskActions();
+        this.refreshStatus();
+    }
+
+    failCreate(message) {
+        this.creating = false;
+        this.taskCloseLabel = "Close";
+        this.createProgressText = "";
+        this.setError(message);
+        this.refreshTaskActions();
+        this.refreshStatus();
+    }
+
+    actionText(action) {
+        if (action === "would-write") return "would write";
+        if (action === "skipped-exists") return "skipped";
+        return action || "—";
+    }
+
+    rebuildTree() {
+        const nodes = [];
+        const index = new Map();
+        const ensure = (path, label, parent) => {
+            if (index.has(path)) return index.get(path);
+            const node = { key: path, path, label, parent, hasChildren: false, expanded: !!this.expandedMap[path] };
+            index.set(path, node);
+            nodes.push(node);
+            const parentNode = parent === "" ? null : index.get(parent);
+            if (parentNode) parentNode.hasChildren = true;
+            return node;
+        };
+        for (const entry of this.entries) {
+            const parts = this.normalizeName(entry.name).split("/").filter(Boolean);
+            const isDirEntry = String(entry.kind || "") === "directory";
+            const depth = isDirEntry ? parts.length : parts.length - 1;
+            for (let i = 1; i <= depth; i += 1) {
+                const path = `${parts.slice(0, i).join("/")}/`;
+                const parent = i === 1 ? "" : `${parts.slice(0, i - 1).join("/")}/`;
+                ensure(path, parts[i - 1], parent);
+            }
+        }
+        this.treeNodes = nodes;
+        this.flattenTree();
+    }
+
+    flattenTree() {
+        const children = new Map();
+        for (const node of this.treeNodes) {
+            const list = children.get(node.parent) || [];
+            list.push(node);
+            children.set(node.parent, list);
+        }
+        const sortNodes = (list) => list.sort((left, right) => left.label.localeCompare(right.label));
+        const rows = [];
+        const walk = (parent, depth) => {
+            const list = sortNodes(children.get(parent) || []);
+            for (const node of list) {
+                rows.push({
+                    key: node.path,
+                    path: node.path,
+                    label: node.label,
+                    depth,
+                    hasChildren: node.hasChildren,
+                    expanded: !!this.expandedMap[node.path],
+                    caret: this.expandedMap[node.path] ? "▾" : "▸",
+                });
+                if (node.hasChildren && this.expandedMap[node.path]) walk(node.path, depth + 1);
+            }
+        };
+        walk("", 0);
+        this.treeRows = rows;
+    }
+
+    toggleNode(path) {
+        const next = { ...this.expandedMap };
+        if (next[path]) delete next[path];
+        else next[path] = true;
+        this.expandedMap = next;
+        this.flattenTree();
+    }
+
+    toggleTree() {
+        this.treeOpen = !this.treeOpen;
+    }
+
+    navigateTo(path) {
+        this.currentPrefix = String(path || "");
+        this.focusedKey = "";
+        this.refreshBrowser();
+    }
+
+    goUp() {
+        const prefix = this.currentPrefix;
+        if (!prefix) return;
+        const parts = prefix.replace(/\/$/, "").split("/");
+        parts.pop();
+        this.navigateTo(parts.length ? `${parts.join("/")}/` : "");
+    }
+
+    refreshBrowser() {
+        const prefix = this.currentPrefix;
+        const rows = [];
+        const directories = new Map();
+        const normalized = this.entries.map((entry) => ({
+            entry,
+            name: this.normalizeName(entry.name),
         }));
+        for (const item of normalized) {
+            const name = item.name;
+            if (!name.startsWith(prefix) || name === prefix) continue;
+            let rest = name.slice(prefix.length);
+            const directory = String(item.entry.kind || "") === "directory";
+            if (rest.endsWith("/")) rest = rest.slice(0, -1);
+            if (!rest) continue;
+            const slash = rest.indexOf("/");
+            if (slash >= 0 || directory) {
+                const label = slash >= 0 ? rest.slice(0, slash) : rest;
+                if (!label) continue;
+                if (!directories.has(label)) {
+                    directories.set(label, {
+                        key: `dir:${prefix}${label}`,
+                        name: label,
+                        isDir: true,
+                        sizeText: "—",
+                        packedText: "—",
+                        methodText: "—",
+                        modifiedText: "—",
+                        kindText: "folder",
+                        unsafe: false,
+                        index: "",
+                    });
+                }
+                continue;
+            }
+            const size = Number(item.entry.sizeBytes) || 0;
+            const unsafe = item.entry.safe === false;
+            rows.push({
+                key: `entry:${Number(item.entry.index) || 0}:${name}`,
+                name: rest,
+                isDir: false,
+                sizeText: this.formatBytes(size),
+                packedText: item.entry.compressedSizeBytes === undefined || item.entry.compressedSizeBytes === null
+                    ? "—"
+                    : this.formatBytes(Number(item.entry.compressedSizeBytes) || 0),
+                methodText: String(item.entry.compressionMethod || "—"),
+                modifiedText: this.formatTime(Number(item.entry.modifiedAtUnixMs) || 0),
+                kindText: unsafe ? `${String(item.entry.kind || "file")} · ${String(item.entry.unsafeReason || "unsafe")}` : String(item.entry.kind || "file"),
+                unsafe,
+                index: String(item.entry.index),
+            });
+        }
+        const dirRows = Array.from(directories.values()).sort((left, right) => left.name.localeCompare(right.name));
+        const fileRows = rows.sort((left, right) => left.name.localeCompare(right.name));
+        this.rows = dirRows.concat(fileRows);
+        this.refreshBreadcrumbs();
+        this.refreshBrowserCount();
+        this.refreshUnsafeLine();
+    }
+
+    refreshBreadcrumbs() {
+        const crumbs = [{ key: "root", label: this.listingPath ? this.basename(this.listingPath) : "Archive", path: "" }];
+        const parts = this.currentPrefix.replace(/\/$/, "").split("/").filter(Boolean);
+        let parent = "";
+        for (let i = 0; i < parts.length; i += 1) {
+            const path = `${parts.slice(0, i + 1).join("/")}/`;
+            crumbs.push({ key: path, label: parts[i], path });
+            parent = path;
+        }
+        this.breadcrumbs = crumbs;
+    }
+
+    refreshBrowserCount() {
+        const total = this.entries.length;
+        const count = this.rows.length;
+        this.entriesText = `${total} ${total === 1 ? "entry" : "entries"}`;
+        this.browseCountText = this.currentPrefix || count !== total ? `${count} shown in this folder` : `${count} at the archive root`;
+    }
+
+    refreshUnsafeLine() {
+        const unsafe = this.rows.filter((row) => row.unsafe).length;
+        this.rowsUnsafeLine = unsafe ? `${unsafe} unsafe ${unsafe === 1 ? "entry is" : "entries are"} flagged in this folder and will be rejected on extraction.` : "";
+    }
+
+    focusRow(e) {
+        const row = e && e.currentTarget ? e.currentTarget : null;
+        const key = row && row.dataset ? row.dataset.key : "";
+        if (key) this.focusedKey = key;
+        this.refreshActions();
+    }
+
+    activateRow(e) {
+        const target = e && e.currentTarget ? e.currentTarget : null;
+        const key = target && target.dataset ? target.dataset.key : this.focusedKey;
+        const row = this.rows.find((item) => item.key === key);
+        if (!row) return;
+        if (row.isDir) {
+            this.navigateTo(`${this.currentPrefix}${row.name}/`);
+            return;
+        }
+        this.focusedKey = row.key;
+    }
+
+    onTableKey(e) {
+        if (!e) return;
+        if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Home" || e.key === "End") {
+            e.preventDefault();
+            this.moveFocus(e.key);
+        }
+        else if (e.key === "Enter") {
+            e.preventDefault();
+            const focused = this.rows.find((item) => item.key === this.focusedKey);
+            if (focused && focused.isDir) this.navigateTo(`${this.currentPrefix}${focused.name}/`);
+        }
+        else if (e.key === "Backspace") {
+            e.preventDefault();
+            this.goUp();
+        }
+    }
+
+    moveFocus(key) {
+        if (!this.rows.length) return;
+        const current = this.rows.findIndex((item) => item.key === this.focusedKey);
+        let next = 0;
+        if (key === "ArrowDown") next = Math.min(this.rows.length - 1, current + 1);
+        else if (key === "ArrowUp") next = Math.max(0, current - 1);
+        else if (key === "End") next = this.rows.length - 1;
+        if (current < 0 && key === "ArrowUp") next = 0;
+        this.focusedKey = this.rows[next].key;
+        const rows = document.querySelectorAll(".oz-table tbody tr");
+        const target = rows[next];
+        if (target) target.scrollIntoView({ block: "nearest" });
+    }
+
+    requestCapabilities() {
+        this._seq += 1;
+        this.loadingCapabilities = true;
+        if (!this.post({ type: "capabilities", id: this._seq })) this.loadingCapabilities = false;
     }
 
     applyCapabilities(report) {
         this.loadingCapabilities = false;
-        const entries = Array.isArray(report.entries) ? report.entries : [];
-        this.capabilityRows = entries.map((entry) => ({
+        this.hostText = `${String(report.platform || "unknown")} · ${String(report.architecture || "unknown")}`;
+        this.capabilityRows = (Array.isArray(report.entries) ? report.entries : []).map((entry) => ({
             id: String(entry.capability || ""),
-            cells: [
-                String(entry.capability || ""),
-                entry.available ? "available" : String(entry.code || "blocked"),
-                String(entry.detail || ""),
-            ],
+            title: String(entry.capability || ""),
+            state: entry.available ? "available" : String(entry.code || "blocked"),
+            detail: String(entry.detail || ""),
         }));
-        this.status = `Host ${report.platform || "unknown"}-${report.architecture || "unknown"}.`;
+        this.statusText = this.statusText || `Host ${this.hostText}.`;
+        this.refreshStatus();
+    }
+
+    failCapabilities(message) {
+        this.loadingCapabilities = false;
+        this.hostText = "capabilities unavailable";
+        this.errorText = message;
+        this.refreshStatus();
+    }
+
+    toggleCapabilities() {
+        this.capabilitiesOpen = !this.capabilitiesOpen;
+        if (this.capabilitiesOpen && !this.capabilityRows.length) this.requestCapabilities();
     }
 
     requestClose() {
         this.post({ type: "close" });
     }
 
-    formatBytes(n) {
-        if (n < 1024) return `${n} B`;
-        if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`;
-        if (n < 1024 ** 3) return `${(n / 1024 ** 2).toFixed(1)} MB`;
-        return `${(n / 1024 ** 3).toFixed(2)} GB`;
+    refreshActions() {
+        const archive = (this.archivePath || "").trim();
+        this.canExtract = this.entries.length > 0;
+        this.canVerify = archive.length > 0;
+        this.refreshTaskActions();
+    }
+
+    refreshTaskActions() {
+        this.canStartExtract = this.taskView === "extract" && !this.extracting && (this.destination || "").trim().length > 0;
+        this.canAddSource = (this.sourceDraft || "").trim().length > 0;
+        this.canStartCreate = this.taskView === "create" && !this.creating && this.createSources.length > 0
+            && (this.createDestination || "").trim().length > 0;
+    }
+
+    refreshStatus() {
+        this.statusText = this.errorText || this.statusText || "Ready";
+        this.formatText = this.listingPath ? this.formatText : "—";
+        this.unsafeText = `unsafe ${this.unsafeCount}`;
+    }
+
+    normalizeName(name) {
+        return String(name || "").replace(/\\/g, "/").replace(/^\.\//, "");
+    }
+
+    basename(path) {
+        const value = String(path || "");
+        const index = Math.max(value.lastIndexOf("\\"), value.lastIndexOf("/"));
+        return index >= 0 ? value.slice(index + 1) : value;
+    }
+
+    formatBytes(size) {
+        if (!size) return "0 B";
+        if (size < 1024) return `${size} B`;
+        if (size < 1024 ** 2) return `${(size / 1024).toFixed(1)} KB`;
+        if (size < 1024 ** 3) return `${(size / 1024 ** 2).toFixed(1)} MB`;
+        return `${(size / 1024 ** 3).toFixed(2)} GB`;
+    }
+
+    formatTime(ms) {
+        if (!ms) return "—";
+        const date = new Date(ms);
+        const pad = (n) => String(n).padStart(2, "0");
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
     }
 }
 </script>
