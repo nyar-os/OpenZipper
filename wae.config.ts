@@ -1,49 +1,134 @@
 /**
  * Build and release configuration for OpenZipper.
  *
- * This file is pure data so it can be parsed statically. There are no command
- * strings and no conditional scripts here; the build order is executed by the
- * workspace scripts.
+ * Pure literals only: `wae` parses this file statically and never executes it.
+ * Build order is fixed: native → ts → ui → skills → staging.
  */
 export default {
     native: {
         crate: 'open-zipper-napi',
-        targets: ['win32-x64', 'darwin-x64', 'darwin-arm64', 'linux-x64', 'linux-arm64'],
         cdylib: 'open_zipper_napi',
-    },
-    packages: {
-        native: [
-            { target: 'win32-x64', dir: 'packages/open-zipper-win32-x64', os: ['win32'], cpu: ['x64'] },
-            { target: 'darwin-x64', dir: 'packages/open-zipper-darwin-x64', os: ['darwin'], cpu: ['x64'] },
-            { target: 'darwin-arm64', dir: 'packages/open-zipper-darwin-arm64', os: ['darwin'], cpu: ['arm64'] },
-            { target: 'linux-x64', dir: 'packages/open-zipper-linux-x64', os: ['linux'], cpu: ['x64'] },
-            { target: 'linux-arm64', dir: 'packages/open-zipper-linux-arm64', os: ['linux'], cpu: ['arm64'] },
+        targets: [
+            {
+                platform: 'win32',
+                arch: 'x64',
+                triple: 'x86_64-pc-windows-msvc',
+                package: '@wae/open-zipper-win32-x64',
+                nodeFile: 'open-zipper.win32-x64.node',
+                dir: 'packages/open-zipper-win32-x64',
+            },
+            {
+                platform: 'darwin',
+                arch: 'x64',
+                triple: 'x86_64-apple-darwin',
+                package: '@wae/open-zipper-darwin-x64',
+                nodeFile: 'open-zipper.darwin-x64.node',
+                dir: 'packages/open-zipper-darwin-x64',
+            },
+            {
+                platform: 'darwin',
+                arch: 'arm64',
+                triple: 'aarch64-apple-darwin',
+                package: '@wae/open-zipper-darwin-arm64',
+                nodeFile: 'open-zipper.darwin-arm64.node',
+                dir: 'packages/open-zipper-darwin-arm64',
+            },
+            {
+                platform: 'linux',
+                arch: 'x64',
+                triple: 'x86_64-unknown-linux-gnu',
+                package: '@wae/open-zipper-linux-x64',
+                nodeFile: 'open-zipper.linux-x64.node',
+                dir: 'packages/open-zipper-linux-x64',
+            },
+            {
+                platform: 'linux',
+                arch: 'arm64',
+                triple: 'aarch64-unknown-linux-gnu',
+                package: '@wae/open-zipper-linux-arm64',
+                nodeFile: 'open-zipper.linux-arm64.node',
+                dir: 'packages/open-zipper-linux-arm64',
+            },
         ],
     },
+    packages: [
+        {
+            name: '@wae/open-zipper-win32-x64',
+            dir: 'packages/open-zipper-win32-x64',
+            os: ['win32'],
+            cpu: ['x64'],
+            main: 'open-zipper.win32-x64.node',
+        },
+        {
+            name: '@wae/open-zipper-darwin-x64',
+            dir: 'packages/open-zipper-darwin-x64',
+            os: ['darwin'],
+            cpu: ['x64'],
+            main: 'open-zipper.darwin-x64.node',
+        },
+        {
+            name: '@wae/open-zipper-darwin-arm64',
+            dir: 'packages/open-zipper-darwin-arm64',
+            os: ['darwin'],
+            cpu: ['arm64'],
+            main: 'open-zipper.darwin-arm64.node',
+        },
+        {
+            name: '@wae/open-zipper-linux-x64',
+            dir: 'packages/open-zipper-linux-x64',
+            os: ['linux'],
+            cpu: ['x64'],
+            main: 'open-zipper.linux-x64.node',
+        },
+        {
+            name: '@wae/open-zipper-linux-arm64',
+            dir: 'packages/open-zipper-linux-arm64',
+            os: ['linux'],
+            cpu: ['arm64'],
+            main: 'open-zipper.linux-arm64.node',
+        },
+    ],
     build: {
-        order: ['native', 'typescript', 'ui', 'skills'],
+        ts: { packages: ['@wae/open-zipper'] },
+        ui: { package: '@wae/open-zipper-ui' },
+        stage: [
+            { from: 'packages/open-zipper-ui/dist/static', to: 'packages/open-zipper/dist/gui' },
+        ],
+        outputs: ['packages/open-zipper/dist/cli.js', 'packages/open-zipper/dist/gui/index.html'],
     },
     skills: {
-        dir: 'packages/open-zipper-skills/skills',
-        check: 'scripts/check-skills.ts',
+        packages: [
+            {
+                dir: 'packages/open-zipper-skills/skills',
+                packageJson: 'packages/open-zipper-skills/package.json',
+                appPackageJson: 'packages/open-zipper/package.json',
+                cliEntry: 'packages/open-zipper/dist/cli.js',
+                commandName: 'open-zipper',
+            },
+        ],
     },
     release: {
+        registry: 'https://registry.npmjs.org',
+        tagPattern: '^v(\\d+\\.\\d+\\.\\d+)$',
         packages: [
-            '@wae/open-zipper',
-            '@wae/open-zipper-skills',
-            '@wae/open-zipper-win32-x64',
-            '@wae/open-zipper-darwin-x64',
-            '@wae/open-zipper-darwin-arm64',
-            '@wae/open-zipper-linux-x64',
-            '@wae/open-zipper-linux-arm64',
+            { name: '@wae/open-zipper', dir: 'packages/open-zipper' },
+            { name: '@wae/open-zipper-skills', dir: 'packages/open-zipper-skills' },
+            { name: '@wae/open-zipper-win32-x64', dir: 'packages/open-zipper-win32-x64' },
+            { name: '@wae/open-zipper-darwin-x64', dir: 'packages/open-zipper-darwin-x64' },
+            { name: '@wae/open-zipper-darwin-arm64', dir: 'packages/open-zipper-darwin-arm64' },
+            { name: '@wae/open-zipper-linux-x64', dir: 'packages/open-zipper-linux-x64' },
+            { name: '@wae/open-zipper-linux-arm64', dir: 'packages/open-zipper-linux-arm64' },
         ],
-        tag: 'vX.Y.Z',
     },
     ci: {
-        workflows: ['check-rust.yml', 'check-typescript.yml'],
+        repo: 'nyar-os/OpenZipper',
+        workflows: ['check-rust.yml', 'check-typescript.yml', 'publish-npm.yml'],
+        requiredJobs: ['core-tests', 'gates', 'check-typescript'],
+    },
+    install: {
+        shortcutDefault: true,
     },
     audit: {
-        app: 'open-zipper',
-        actorSources: ['cli', 'environment', 'gui', 'plugin'],
+        actor: { kind: 'flag', id: 'flag', source: 'flag' },
     },
 };
