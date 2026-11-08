@@ -7,7 +7,7 @@
     "os": ["win32"],
     "cpu": ["x64"],
     "main": "open-zipper.win32-x64.node",
-    "files": ["open-zipper.win32-x64.node"],
+    "files": ["open-zipper.win32-x64.node", "README.md", "License.md"],
     "engines": {
         "node": ">=20"
     }

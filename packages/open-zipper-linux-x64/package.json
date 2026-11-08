@@ -7,7 +7,7 @@
     "os": ["linux"],
     "cpu": ["x64"],
     "main": "open-zipper.linux-x64.node",
-    "files": ["open-zipper.linux-x64.node"],
+    "files": ["open-zipper.linux-x64.node", "README.md", "License.md"],
     "engines": {
         "node": ">=20"
     }

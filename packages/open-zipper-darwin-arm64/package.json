@@ -7,7 +7,7 @@
     "os": ["darwin"],
     "cpu": ["arm64"],
     "main": "open-zipper.darwin-arm64.node",
-    "files": ["open-zipper.darwin-arm64.node"],
+    "files": ["open-zipper.darwin-arm64.node", "README.md", "License.md"],
     "engines": {
         "node": ">=20"
     }
