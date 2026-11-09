@@ -5,7 +5,9 @@
 //! validation, extraction and creation live in `open-zipper-core`; no child
 //! process or shell pipeline is ever used here.
 
+mod associations;
 mod audit;
+mod shortcut;
 
 use std::{
     cell::RefCell,
@@ -653,6 +655,106 @@ fn actor_from_js(arg: Option<JsValue>) -> Result<Actor> {
     Ok(actor)
 }
 
+fn string_array_prop(arg: Option<JsValue>, name: &str) -> Result<Vec<String>> {
+    let Some(value) = arg
+    else {
+        return Ok(Vec::new());
+    };
+    if value.is_undefined()? {
+        return Ok(Vec::new());
+    }
+    let array = value.get_named(name)?;
+    if array.is_undefined()? {
+        return Ok(Vec::new());
+    }
+    let length = array.get_named("length")?.as_i64()?;
+    let mut items = Vec::new();
+    for index in 0..length.max(0) {
+        items.push(array.get_named(&index.to_string())?.as_string()?);
+    }
+    Ok(items)
+}
+
+#[function(js_name = "associationStatus")]
+fn association_status_js(ctx: CallContext) -> Result<JsValue> {
+    let status = audit::run("associations", Mode::DryRun, Value::Null, || {
+        let status = associations::status()?;
+        let registered = status.extensions.iter().filter(|entry| entry.registered).count();
+        Ok((status, audit::Summary::new(registered as u64, format!("{registered} extensions registered"))))
+    })
+    .map_err(core_error)?;
+    value_to_js(ctx.env(), &status)
+}
+
+#[function(js_name = "setAssociations")]
+fn set_associations_js(ctx: CallContext) -> Result<JsValue> {
+    let arg = ctx.arg(0).ok();
+    let extensions = string_array_prop(arg, "extensions")?;
+    let enabled = bool_prop(arg, "enabled")?;
+    let node_path = required_string_prop(arg, "nodePath", "setAssociations")?;
+    let script_path = required_string_prop(arg, "scriptPath", "setAssociations")?;
+    let icon_path = required_string_prop(arg, "iconPath", "setAssociations")?;
+    let params = json!({ "extensions": extensions, "enabled": enabled, "nodePath": node_path, "scriptPath": script_path });
+    let status = audit::run("associations", Mode::Execute, params, || {
+        let status = associations::set(&extensions, enabled, &node_path, &script_path, &icon_path)?;
+        let registered = status.extensions.iter().filter(|entry| entry.registered).count();
+        Ok((status, audit::Summary::new(extensions.len() as u64, format!("{registered} extensions registered after update"))))
+    })
+    .map_err(core_error)?;
+    value_to_js(ctx.env(), &status)
+}
+
+#[function(js_name = "createShortcut")]
+fn create_shortcut_js(ctx: CallContext) -> Result<JsValue> {
+    let arg = ctx.arg(0).ok();
+    let name = optional_string_prop_of(arg, "name")?.unwrap_or_else(|| shortcut::DEFAULT_SHORTCUT_NAME.to_string());
+    let node_path = required_string_prop(arg, "nodePath", "createShortcut")?;
+    let script_path = required_string_prop(arg, "scriptPath", "createShortcut")?;
+    let icon_path = required_string_prop(arg, "iconPath", "createShortcut")?;
+    let working_dir = required_string_prop(arg, "workingDir", "createShortcut")?;
+    let params = json!({ "name": name, "nodePath": node_path, "scriptPath": script_path });
+    let result = audit::run("shortcut", Mode::Execute, params, || {
+        let result = shortcut::create(&name, &node_path, &script_path, &icon_path, &working_dir)?;
+        Ok((result, audit::Summary::new(1, "desktop shortcut ready")))
+    })
+    .map_err(core_error)?;
+    value_to_js(ctx.env(), &result)
+}
+
+#[function(js_name = "removeShortcut")]
+fn remove_shortcut_js(ctx: CallContext) -> Result<JsValue> {
+    let arg = ctx.arg(0).ok();
+    let name = optional_string_prop_of(arg, "name")?.unwrap_or_else(|| shortcut::DEFAULT_SHORTCUT_NAME.to_string());
+    let result = audit::run("shortcut", Mode::Execute, json!({ "name": name }), || {
+        let result = shortcut::remove(&name)?;
+        Ok((result, audit::Summary::new(1, "desktop shortcut removed")))
+    })
+    .map_err(core_error)?;
+    value_to_js(ctx.env(), &result)
+}
+
+#[function(js_name = "openDefaultAppsSettings")]
+fn open_default_apps_settings_js(ctx: CallContext) -> Result<JsValue> {
+    audit::run("shell-settings", Mode::Execute, json!({ "uri": "ms-settings:defaultapps" }), || {
+        shortcut::open_default_apps_settings()?;
+        Ok(((), audit::Summary::new(1, "default apps settings opened")))
+    })
+    .map_err(core_error)?;
+    ctx.env().undefined()
+}
+
+#[function(js_name = "clearRecent")]
+fn clear_recent_js(ctx: CallContext) -> Result<JsValue> {
+    audit::run("recent-clear", Mode::Execute, Value::Null, || {
+        let (dir, _platform) =
+            recent_store().ok_or_else(|| CoreError::coded(ErrorCode::InvalidOption, "no per-user directory for the recent store"))?;
+        recent::clear(&dir)?;
+        Ok(((), audit::Summary::new(1, "recent archives cleared")))
+    })
+    .map_err(core_error)?;
+    ctx.env().undefined()
+}
+
 #[function(js_name = "listEntries")]
 fn list_entries_js(ctx: CallContext) -> Result<JsValue> {
     let path = required_string_prop(ctx.arg(0).ok(), "path", "listEntries")?;
@@ -742,6 +844,7 @@ fn open_gui(ctx: CallContext) -> Result<JsValue> {
     let mut title = APP_TITLE.to_string();
     let mut content_dir: Option<String> = None;
     let mut url: Option<String> = None;
+    let mut startup_file: Option<String> = None;
     let mut width = 1120;
     let mut height = 780;
     let mut second_launch = "focus".to_string();
@@ -754,6 +857,7 @@ fn open_gui(ctx: CallContext) -> Result<JsValue> {
         }
         content_dir = optional_string_prop(arg, "contentDir")?;
         url = optional_string_prop(arg, "url")?;
+        startup_file = optional_string_prop(arg, "startupFile")?;
         if let Some(value) = optional_string_prop(arg, "secondLaunch")? {
             if value != "focus" && value != "reject" {
                 let message = format!("`secondLaunch` must be `focus` or `reject`, got `{value}`");
@@ -814,6 +918,13 @@ fn open_gui(ctx: CallContext) -> Result<JsValue> {
             let mut options = options;
             options.width = width;
             options.height = height;
+            // 双击关联打开：文件路径经 `?open=` 查询参数进入页面，映射的
+            // 内容目录不变；显式 `url` 逃生舱优先于 startupFile。
+            if options.url.is_none()
+                && let Some(file) = startup_file.as_deref().map(str::trim).filter(|file| !file.is_empty())
+            {
+                options.url = Some(format!("https://app.local/index.html?open={}", associations::encode_open_query(file)));
+            }
             options.accept_file_drop = true;
             let close_requested = Arc::new(AtomicBool::new(false));
             let host = WebViewHost::open(
@@ -1052,6 +1163,12 @@ register_module![
     create_js,
     test_archive_js,
     preview_entry_js,
+    association_status_js,
+    set_associations_js,
+    create_shortcut_js,
+    remove_shortcut_js,
+    open_default_apps_settings_js,
+    clear_recent_js,
     version,
     capabilities_js,
     open_gui,

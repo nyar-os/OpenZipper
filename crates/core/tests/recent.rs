@@ -88,6 +88,19 @@ fn corrupted_or_stale_stores_load_empty_and_are_replaced() {
 }
 
 #[test]
+fn clear_removes_the_store_and_is_idempotent() {
+    let dir = TempDir::new("recent-clear");
+    let store = dir.path().to_path_buf();
+    let archive = touch(&dir, "keep.zip");
+    recent::record(&store, &archive, now_ms(1), Platform::Linux).expect("record");
+    assert!(!recent::load(&store, Platform::Linux).is_empty());
+
+    recent::clear(&store).expect("first clear");
+    assert!(recent::load(&store, Platform::Linux).is_empty());
+    recent::clear(&store).expect("second clear on a missing file still succeeds");
+}
+
+#[test]
 fn file_path_follows_the_injected_environment() {
     let env: HashMap<String, String> =
         HashMap::from([("APPDATA".to_string(), "C:\\Users\\dev\\AppData\\Roaming".to_string()), ("HOME".to_string(), "/home/dev".to_string())]);

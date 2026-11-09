@@ -101,3 +101,12 @@ pub fn record(dir: &Path, archive: &Path, now_ms: i64, platform: Platform) -> Re
     })?;
     Ok(stored.items)
 }
+
+/// Removes the store file. A missing file is success: clearing is idempotent.
+pub fn clear(dir: &Path) -> Result<()> {
+    match fs::remove_file(dir.join("recent.json")) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(Error::io(dir.display().to_string(), error)),
+    }
+}
