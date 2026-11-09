@@ -93,7 +93,7 @@ pub fn validate_entry_path(name: &str, platform: Platform) -> Result<SafeEntryPa
     Ok(SafeEntryPath { components, relative, normalized_key })
 }
 
-fn is_reserved_device_name(component: &str) -> bool {
+pub(crate) fn is_reserved_device_name(component: &str) -> bool {
     let base = component.split('.').next().unwrap_or(component).trim().to_ascii_uppercase();
     matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$")
         || (base.len() == 4

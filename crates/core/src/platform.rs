@@ -16,6 +16,7 @@ pub const CAP_ARCHIVE_READ_7Z: &str = "archive-read-7z";
 pub const CAP_ARCHIVE_READ_RAR: &str = "archive-read-rar";
 pub const CAP_PATH_SAFETY: &str = "path-safety";
 pub const CAP_BOMB_GUARD: &str = "archive-bomb-guard";
+pub const CAP_ARCHIVE_PREVIEW: &str = "archive-preview";
 pub const CAP_ENCODING_GBK: &str = "archive-name-encoding";
 pub const CAP_NTFS_METADATA: &str = "ntfs-metadata";
 pub const CAP_GUI: &str = "gui";
@@ -126,6 +127,7 @@ pub fn capabilities() -> Capabilities {
         ),
         available(CAP_PATH_SAFETY, "zip slip, symlink, drive, UNC, device-name and Windows normalization checks run before any write"),
         available(CAP_BOMB_GUARD, "entry count, total size, entry size, compression ratio and nested depth limits abort extraction"),
+        available(CAP_ARCHIVE_PREVIEW, "single-entry bounded reads serve the GUI preview without touching disk"),
         available(CAP_ENCODING_GBK, "zip entry names fall back to GBK and CP437 when raw bytes are not valid UTF-8"),
         ntfs,
     ];
@@ -182,6 +184,7 @@ mod tests {
             CAP_ARCHIVE_WRITE_TAR_XZ,
             CAP_PATH_SAFETY,
             CAP_BOMB_GUARD,
+            CAP_ARCHIVE_PREVIEW,
             CAP_ENCODING_GBK,
         ] {
             let entry = report.entries.iter().find(|entry| entry.capability == capability).expect("capability entry");

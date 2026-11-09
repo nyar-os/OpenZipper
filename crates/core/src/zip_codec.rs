@@ -341,3 +341,61 @@ pub(crate) fn verify(path: &Path, limits: &ArchiveLimits) -> Result<(usize, u64)
 
     Ok((checked, total_bytes))
 }
+
+/// Reads up to `cap` decoded bytes of one member without touching disk.
+///
+/// The decoder stops with the chunk that crosses the cap, so an over-length
+/// member is reported as `truncated` instead of failing the preview.
+pub(crate) fn read_member(path: &Path, index: usize, cap: u64) -> Result<(Vec<u8>, bool)> {
+    let (source, archive_index) = open_index(path)?;
+    let member = archive_index
+        .members
+        .get(index)
+        .ok_or_else(|| Error::coded(ErrorCode::InvalidArchive, format!("zip: entry index {index} is out of range")))?;
+    let name = decode_name(&member.raw_name);
+    check_encrypted(&name, member)?;
+    check_compression(&name, member)?;
+
+    let limits = CodecLimits::new().with_max_output_bytes(cap.saturating_add(ZIP_STREAM_CHUNK as u64));
+    let mut stream = ZipMemberStream::with_chunk_size(&source, member, limits, ZIP_STREAM_CHUNK).map_err(map_view_error)?;
+    let mut buffer = vec![0_u8; ZIP_STREAM_CHUNK];
+    let mut output = Vec::new();
+    let mut truncated = false;
+    loop {
+        match stream.read(&mut buffer).map_err(map_view_error)? {
+            StreamChunk::Finished => break,
+            StreamChunk::Produced(0) | StreamChunk::NeedInput => continue,
+            StreamChunk::Produced(count) => {
+                let room = cap.saturating_sub(output.len() as u64) as usize;
+                if count > room {
+                    output.extend_from_slice(&buffer[..room]);
+                    truncated = true;
+                    break;
+                }
+                output.extend_from_slice(&buffer[..count]);
+            }
+        }
+    }
+    Ok((output, truncated))
+}
+
+/// Writes one member to `dest` under the full archive limits, for external open.
+pub(crate) fn write_member(path: &Path, index: usize, dest: &Path, limits: &ArchiveLimits) -> Result<u64> {
+    let (source, archive_index) = open_index(path)?;
+    let member = archive_index
+        .members
+        .get(index)
+        .ok_or_else(|| Error::coded(ErrorCode::InvalidArchive, format!("zip: entry index {index} is out of range")))?;
+    let name = decode_name(&member.raw_name);
+    check_encrypted(&name, member)?;
+    check_compression(&name, member)?;
+    if member.is_directory() {
+        return Err(Error::coded(ErrorCode::InvalidOption, format!("zip: entry `{name}` is a directory")));
+    }
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|error| Error::io(parent.display().to_string(), error))?;
+    }
+    let mut file = File::create(dest).map_err(|error| Error::io(dest.display().to_string(), error))?;
+    let mut total_bytes = 0_u64;
+    stream_member(&source, member, &name, limits, &mut total_bytes, &mut file)
+}

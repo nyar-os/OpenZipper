@@ -385,3 +385,67 @@ pub(crate) fn test(path: &Path, limits: &ArchiveLimits) -> Result<(usize, u64)> 
     }
     Ok((entry_count, total_bytes))
 }
+
+/// Reads up to `cap` bytes of one entry (matched by name) without touching disk.
+pub(crate) fn read_member(path: &Path, name: &str, cap: u64) -> Result<(Vec<u8>, bool)> {
+    let mut reader = open(path)?;
+    let mut found: Option<(Vec<u8>, bool)> = None;
+    let mut failure: Option<Error> = None;
+    let result = reader.for_each_entries(|entry, stream| {
+        if entry.name() != name {
+            return Ok(true);
+        }
+        match crate::io_util::read_bounded(stream, cap) {
+            Ok(bytes) => {
+                found = Some(bytes);
+                Ok(false)
+            }
+            Err(error) => {
+                failure = Some(error);
+                Err(SevenZError::Other(Cow::Borrowed("open-zipper preview aborted")))
+            }
+        }
+    });
+    match result {
+        Ok(()) => {}
+        Err(error) => return Err(failure.unwrap_or_else(|| map_error(error))),
+    }
+    found.ok_or_else(|| Error::coded(ErrorCode::InvalidArchive, format!("7z: entry `{name}` disappeared between passes")))
+}
+
+/// Writes one entry to `dest` under the full archive limits, for external open.
+pub(crate) fn write_member(path: &Path, name: &str, dest: &Path, limits: &ArchiveLimits) -> Result<u64> {
+    let mut reader = open(path)?;
+    let mut written: Option<u64> = None;
+    let mut failure: Option<Error> = None;
+    let result = reader.for_each_entries(|entry, stream| {
+        if entry.name() != name {
+            return Ok(true);
+        }
+        match File::create(dest) {
+            Ok(mut file) => {
+                let mut entry_bytes = 0_u64;
+                let mut total_bytes = 0_u64;
+                match copy_limited(stream, &mut file, name, limits, &mut entry_bytes, &mut total_bytes) {
+                    Ok(count) => {
+                        written = Some(count);
+                        Ok(false)
+                    }
+                    Err(error) => {
+                        failure = Some(error);
+                        Err(SevenZError::Other(Cow::Borrowed("open-zipper extraction aborted")))
+                    }
+                }
+            }
+            Err(error) => {
+                failure = Some(Error::io(dest.display().to_string(), error));
+                Err(SevenZError::Other(Cow::Borrowed("open-zipper extraction aborted")))
+            }
+        }
+    });
+    match result {
+        Ok(()) => {}
+        Err(error) => return Err(failure.unwrap_or_else(|| map_error(error))),
+    }
+    written.ok_or_else(|| Error::coded(ErrorCode::InvalidArchive, format!("7z: entry `{name}` disappeared between passes")))
+}

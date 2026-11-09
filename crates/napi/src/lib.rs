@@ -561,7 +561,7 @@ fn open_gui(ctx: CallContext) -> Result<JsValue> {
         if let Some(value) = optional_string_prop(arg, "secondLaunch")? {
             if value != "focus" && value != "reject" {
                 let message = format!("`secondLaunch` must be `focus` or `reject`, got `{value}`");
-                return value_to_js(ctx.env(), &gui_open_failure(platform, WINDOW_CONFIG_INVALID, message));
+                return value_to_js(ctx.env(), gui_open_failure(platform, WINDOW_CONFIG_INVALID, message));
             }
             second_launch = value;
         }
@@ -611,8 +611,8 @@ fn open_gui(ctx: CallContext) -> Result<JsValue> {
                 OpenOptions::from_url(url, title.clone())
             }
             else {
-                let dir = resolve_gui_dir()
-                    .map_err(|error| CoreError::coded(ErrorCode::GuiOpenFailed, format!("gui content directory: {error}")))?;
+                let dir =
+                    resolve_gui_dir().map_err(|error| CoreError::coded(ErrorCode::GuiOpenFailed, format!("gui content directory: {error}")))?;
                 OpenOptions::from_content_dir(dir.display().to_string(), title.clone())
             };
             let mut options = options;

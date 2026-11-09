@@ -44,3 +44,27 @@ pub(crate) fn drain_limited(
     let mut sink = std::io::sink();
     copy_limited(reader, &mut sink, name, limits, entry_bytes, total_bytes)
 }
+
+/// Reads at most `cap` bytes and reports whether the source still held more.
+///
+/// This is the preview primitive: the reader stops at the cap, so a large
+/// entry never materializes and over-length is a `truncated` flag, not an error.
+pub(crate) fn read_bounded(reader: &mut (impl Read + ?Sized), cap: u64) -> Result<(Vec<u8>, bool)> {
+    let mut buffer = vec![0_u8; CHUNK];
+    let mut output = Vec::new();
+    let mut truncated = false;
+    loop {
+        let read = reader.read(&mut buffer).map_err(|error| Error::coded(ErrorCode::InvalidArchive, format!("bounded read: {error}")))?;
+        if read == 0 {
+            break;
+        }
+        let room = cap.saturating_sub(output.len() as u64);
+        if (read as u64) > room {
+            output.extend_from_slice(&buffer[..room as usize]);
+            truncated = true;
+            break;
+        }
+        output.extend_from_slice(&buffer[..read]);
+    }
+    Ok((output, truncated))
+}

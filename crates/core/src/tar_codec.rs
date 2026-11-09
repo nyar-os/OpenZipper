@@ -481,3 +481,82 @@ fn stream_targz_entry(
     }
     Ok(entry.read_bytes())
 }
+
+/// Reads up to `cap` bytes of one entry without touching disk.
+///
+/// Seekable tars read through the entry data range; `tar.gz` walks the stream
+/// to the requested index because gzip gives no random access.
+pub(crate) fn read_member(path: &Path, format: ArchiveFormat, index: usize, cap: u64, limits: &ArchiveLimits) -> Result<(Vec<u8>, bool)> {
+    if format == ArchiveFormat::TarGz {
+        return read_member_targz(path, index, cap, limits);
+    }
+    let backing = load(path, format, limits)?;
+    let entry = backing
+        .entries()
+        .get(index)
+        .ok_or_else(|| Error::coded(ErrorCode::InvalidArchive, format!("tar: entry index {index} is out of range")))?;
+    let mut reader = backing.reader(entry)?;
+    crate::io_util::read_bounded(&mut reader, cap)
+}
+
+fn read_member_targz(path: &Path, index: usize, cap: u64, limits: &ArchiveLimits) -> Result<(Vec<u8>, bool)> {
+    let source = FileSource::open(path)?;
+    let mut stream = TarGzStream::open(&source, gzip_limits(limits)).map_err(map_targz_error)?;
+    let mut next_index = 0_usize;
+    while let Some(mut candidate) = stream.next_entry().map_err(map_targz_error)? {
+        if next_index == index {
+            let mut buffer = vec![0_u8; TAR_STREAM_CHUNK];
+            let mut output = Vec::new();
+            let mut truncated = false;
+            loop {
+                match candidate.read(&mut buffer).map_err(map_targz_error)? {
+                    StreamChunk::Finished => break,
+                    StreamChunk::Produced(0) | StreamChunk::NeedInput => continue,
+                    StreamChunk::Produced(count) => {
+                        let room = cap.saturating_sub(output.len() as u64) as usize;
+                        if count > room {
+                            output.extend_from_slice(&buffer[..room]);
+                            truncated = true;
+                            break;
+                        }
+                        output.extend_from_slice(&buffer[..count]);
+                    }
+                }
+            }
+            return Ok((output, truncated));
+        }
+        next_index += 1;
+    }
+    Err(Error::coded(ErrorCode::InvalidArchive, format!("tar.gz: entry index {index} is out of range")))
+}
+
+/// Writes one entry to `dest` under the full archive limits, for external open.
+pub(crate) fn write_member(path: &Path, format: ArchiveFormat, index: usize, dest: &Path, limits: &ArchiveLimits) -> Result<u64> {
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|error| Error::io(parent.display().to_string(), error))?;
+    }
+    let mut file = File::create(dest).map_err(|error| Error::io(dest.display().to_string(), error))?;
+    if format == ArchiveFormat::TarGz {
+        let source = FileSource::open(path)?;
+        let mut stream = TarGzStream::open(&source, gzip_limits(limits)).map_err(map_targz_error)?;
+        let mut next_index = 0_usize;
+        let mut total_bytes = 0_u64;
+        while let Some(mut candidate) = stream.next_entry().map_err(map_targz_error)? {
+            if next_index == index {
+                return stream_targz_entry(&mut candidate, &dest.display().to_string(), limits, &mut total_bytes, &mut file);
+            }
+            next_index += 1;
+        }
+        return Err(Error::coded(ErrorCode::InvalidArchive, format!("tar.gz: entry index {index} is out of range")));
+    }
+
+    let backing = load(path, format, limits)?;
+    let entry = backing
+        .entries()
+        .get(index)
+        .ok_or_else(|| Error::coded(ErrorCode::InvalidArchive, format!("tar: entry index {index} is out of range")))?;
+    let mut reader = backing.reader(entry)?;
+    let mut entry_bytes = 0_u64;
+    let mut total_bytes = 0_u64;
+    copy_limited(&mut reader, &mut file, &dest.display().to_string(), limits, &mut entry_bytes, &mut total_bytes)
+}
