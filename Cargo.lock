@@ -596,6 +596,7 @@ dependencies = [
  "bzip2",
  "encoding_rs",
  "serde",
+ "serde_json",
  "sevenz-rust2",
  "xz2",
 ]
