@@ -825,12 +825,13 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 [[package]]
 name = "wae"
 version = "0.0.5"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=aebaade72c695c2d9fcd583439f4fbf832ba3c6d#aebaade72c695c2d9fcd583439f4fbf832ba3c6d"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 dependencies = [
  "wae-audit",
  "wae-macros",
  "wae-napi",
  "wae-plugins",
+ "wae-shell",
  "wae-webview",
  "wae-webview-linux",
  "wae-webview-macos",
@@ -840,7 +841,7 @@ dependencies = [
 [[package]]
 name = "wae-audit"
 version = "0.0.5"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=aebaade72c695c2d9fcd583439f4fbf832ba3c6d#aebaade72c695c2d9fcd583439f4fbf832ba3c6d"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 dependencies = [
  "serde",
  "serde_json",
@@ -850,7 +851,7 @@ dependencies = [
 [[package]]
 name = "wae-macros"
 version = "0.0.5"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=aebaade72c695c2d9fcd583439f4fbf832ba3c6d#aebaade72c695c2d9fcd583439f4fbf832ba3c6d"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -860,7 +861,7 @@ dependencies = [
 [[package]]
 name = "wae-napi"
 version = "0.0.5"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=aebaade72c695c2d9fcd583439f4fbf832ba3c6d#aebaade72c695c2d9fcd583439f4fbf832ba3c6d"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 dependencies = [
  "libloading",
 ]
@@ -868,7 +869,7 @@ dependencies = [
 [[package]]
 name = "wae-plugins"
 version = "0.0.5"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=aebaade72c695c2d9fcd583439f4fbf832ba3c6d#aebaade72c695c2d9fcd583439f4fbf832ba3c6d"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 dependencies = [
  "serde",
  "serde_json",
@@ -876,14 +877,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "wae-shell"
+version = "0.0.5"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
+dependencies = [
+ "wae-webview",
+ "windows",
+]
+
+[[package]]
 name = "wae-webview"
 version = "0.0.5"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=aebaade72c695c2d9fcd583439f4fbf832ba3c6d#aebaade72c695c2d9fcd583439f4fbf832ba3c6d"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 
 [[package]]
 name = "wae-webview-linux"
 version = "0.0.5"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=aebaade72c695c2d9fcd583439f4fbf832ba3c6d#aebaade72c695c2d9fcd583439f4fbf832ba3c6d"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 dependencies = [
  "libloading",
  "wae-webview",
@@ -892,7 +902,7 @@ dependencies = [
 [[package]]
 name = "wae-webview-macos"
 version = "0.0.5"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=aebaade72c695c2d9fcd583439f4fbf832ba3c6d#aebaade72c695c2d9fcd583439f4fbf832ba3c6d"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 dependencies = [
  "objc2",
  "objc2-app-kit",
@@ -904,8 +914,9 @@ dependencies = [
 [[package]]
 name = "wae-webview-win32"
 version = "0.0.5"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=aebaade72c695c2d9fcd583439f4fbf832ba3c6d#aebaade72c695c2d9fcd583439f4fbf832ba3c6d"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 dependencies = [
+ "serde_json",
  "wae-webview",
  "webview2-com",
  "windows",
