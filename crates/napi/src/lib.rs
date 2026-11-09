@@ -1103,4 +1103,57 @@ mod ipc_routing_tests {
         assert!(matches!(handler.on_ipc(r#"{"type":"close"}"#), IpcOutcome::CloseWindow));
         assert!(handler.close_requested.load(Ordering::SeqCst));
     }
+
+    /// Builds one small zip through the core so the preview and recent paths
+    /// run against a real archive instead of fixtures.
+    fn demo_archive(dir: &Path) -> std::path::PathBuf {
+        let source = dir.join("readme.txt");
+        fs::write(&source, b"hello zipper").expect("write source");
+        let archive = dir.join("demo.zip");
+        open_zipper_core::create(&[source], &archive, Some("zip"), &open_zipper_core::CreateOptions::default()).expect("create demo zip");
+        archive
+    }
+
+    #[test]
+    fn preview_recent_and_list_record_round_trip_through_the_handler() {
+        let dir = std::env::temp_dir().join(format!("open-zipper-ipc-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let archive = demo_archive(dir.as_path());
+        let mut handler = ZipperIpcHandler { close_requested: Arc::new(AtomicBool::new(false)), temp_dir: dir.clone() };
+
+        let IpcOutcome::ReplyToPage(text) =
+            handler.on_ipc(&json!({ "type": "preview", "id": 7, "path": archive.display().to_string(), "index": 0 }).to_string())
+        else {
+            panic!("expected a preview reply");
+        };
+        let value: Value = serde_json::from_str(&text).expect("preview reply json");
+        assert_eq!(value["type"], "previewResult");
+        assert_eq!(value["id"], 7);
+        assert_eq!(value["preview"]["kind"], "text");
+        assert_eq!(value["preview"]["text"], "hello zipper");
+
+        let IpcOutcome::ReplyToPage(text) =
+            handler.on_ipc(&json!({ "type": "list", "id": 8, "path": archive.display().to_string() }).to_string())
+        else {
+            panic!("expected a list reply");
+        };
+        let value: Value = serde_json::from_str(&text).expect("list reply json");
+        assert_eq!(value["type"], "listResult");
+
+        // The list success path records the recent store in the real per-user
+        // directory; assert the archive appears there after the call.
+        let (store, platform) = recent_store().expect("recent store resolves");
+        let items = recent::load(&store, platform);
+        assert!(items.iter().any(|item| item.path == archive.display().to_string()), "recent store must contain the listed archive");
+
+        let IpcOutcome::ReplyToPage(text) = handler.on_ipc(r#"{"type":"recent","id":9}"#)
+        else {
+            panic!("expected a recent reply");
+        };
+        let value: Value = serde_json::from_str(&text).expect("recent reply json");
+        assert_eq!(value["type"], "recentResult");
+        assert!(value["items"].as_array().is_some_and(|items| !items.is_empty()));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
