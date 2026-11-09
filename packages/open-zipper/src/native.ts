@@ -175,6 +175,30 @@ export type TestOptions = {
     limits?: ArchiveLimits;
 };
 
+export type PreviewKind = 'text' | 'image' | 'binary' | 'empty';
+
+/** One bounded entry read, classified in the core so every host agrees. */
+export type PreviewResult = {
+    name: string;
+    index: number;
+    kind: PreviewKind;
+    mime?: string;
+    encoding?: string;
+    text?: string;
+    dataBase64?: string;
+    truncated: boolean;
+    previewedBytes: number;
+    totalBytes: number;
+};
+
+export type PreviewOptions = {
+    path: string;
+    index: number;
+    /** Decoded byte budget; the core clamps it to `1..=1 MiB`. */
+    capBytes?: number;
+    limits?: ArchiveLimits;
+};
+
 export type OpenGuiOptions = {
     title?: string;
     /** Local folder containing index.html (served via https://app.local/). */
@@ -226,6 +250,7 @@ type NativeBinding = {
     extract(options: ExtractOptions): ExtractReport;
     create(options: CreateOptions): CreateReport;
     testArchive(options: TestOptions): TestReport;
+    previewEntry(options: PreviewOptions): PreviewResult;
     capabilities(): Capabilities;
     version(): string;
     openGui(options?: OpenGuiOptions): GuiOpenResult;

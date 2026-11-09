@@ -17,6 +17,8 @@ import {
     type GuiStatus,
     type ListOptions,
     type OpenGuiOptions,
+    type PreviewOptions,
+    type PreviewResult,
     type TestOptions,
     type TestReport,
 } from './native.js';
@@ -48,6 +50,9 @@ export type {
     ListOptions,
     OpenGuiOptions,
     OverwritePolicy,
+    PreviewKind,
+    PreviewOptions,
+    PreviewResult,
     TestOptions,
     TestReport,
 } from './native.js';
@@ -74,6 +79,15 @@ export function createArchive(options: CreateOptions): CreateReport {
 /** Verify every entry can be read back; zip CRCs are checked by the decoder. */
 export function testArchive(options: TestOptions): TestReport {
     return loadNative().testArchive(options);
+}
+
+/**
+ * Read one entry's payload into memory for previewing. The core bounds the
+ * read, decodes text with the same fallback chain as entry names, and refuses
+ * encrypted members; over-length payloads arrive truncated, not failed.
+ */
+export function previewEntry(options: PreviewOptions): PreviewResult {
+    return loadNative().previewEntry(options);
 }
 
 /** Report which sinks are available on the current build target. */
