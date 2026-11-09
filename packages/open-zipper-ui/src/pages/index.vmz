@@ -16,6 +16,9 @@
                     @keydown="onArchiveKey"
                 />
             </div>
+            <button type="button" class="oz-btn" aria-label="Recent archives" title="Recent archives" @click="toggleRecent">
+                ▾
+            </button>
             <button type="button" class="oz-btn" :disabled="listing" @click="openArchive">
                 Open
             </button>
@@ -32,6 +35,26 @@
                 ×
             </button>
         </header>
+
+        <section v-if="recentOpen" class="oz-recent" aria-label="Recent archives">
+            <header class="oz-recent__head">
+                <span>Recent archives</span>
+                <button type="button" class="oz-btn oz-btn--ghost" aria-label="Close recent list" @click="toggleRecent">×</button>
+            </header>
+            <div v-if="!recentRows.length" class="oz-recent__empty">No archives opened yet.</div>
+            <button
+                v-for="item in recentRows"
+                :key="item.path"
+                type="button"
+                class="oz-recent__row"
+                :title="item.path"
+                @click="openRecent(item.path)"
+            >
+                <span class="oz-recent__name">{{ item.name }}</span>
+                <span class="oz-recent__dir">{{ item.directory }}</span>
+                <span class="oz-recent__age">{{ item.age }}</span>
+            </button>
+        </section>
 
         <div v-if="errorText" class="oz-banner" role="alert">
             <span class="oz-banner__text">{{ errorText }}</span>
@@ -298,6 +321,22 @@
                     <div v-if="!rows.length && !listing && !errorText" class="oz-empty">
                         <div class="oz-empty__title">{{ emptyTitle }}</div>
                         <p class="oz-empty__desc">{{ emptyDesc }}</p>
+                        <div v-if="recentRows.length" class="oz-recent-list">
+                            <div class="oz-recent-list__head">Recent archives</div>
+                            <button
+                                v-for="item in recentRows"
+                                :key="item.path"
+                                type="button"
+                                class="oz-recent-list__row"
+                                :title="item.path"
+                                @click="openRecent(item.path)"
+                            >
+                                <span class="oz-recent-list__name">{{ item.name }}</span>
+                                <span class="oz-recent-list__dir">{{ item.directory }}</span>
+                                <span class="oz-recent-list__age">{{ item.age }}</span>
+                            </button>
+                        </div>
+                        <p v-else class="oz-empty__hint">Or drop an archive file onto this window.</p>
                     </div>
                     <div v-if="listing" class="oz-loading" role="status">
                         <span class="oz-spinner" aria-hidden="true"></span>{{ loadingText }}
@@ -305,6 +344,37 @@
                     <div v-if="rowsUnsafeLine" class="oz-unsafe-note" role="note">{{ rowsUnsafeLine }}</div>
                 </div>
             </main>
+
+            <section v-if="previewOpen" class="oz-preview" aria-label="Entry preview">
+                <header class="oz-preview__head">
+                    <span class="oz-preview__title" :title="previewName">{{ previewName }}</span>
+                    <span class="oz-task__grow"></span>
+                    <button type="button" class="oz-btn" :disabled="!canOpenEntry || openingEntry" @click="openEntryExternally">
+                        {{ openingEntry ? "Opening…" : "Open with default app" }}
+                    </button>
+                    <button type="button" class="oz-btn oz-btn--ghost" aria-label="Close preview" title="Close preview" @click="closePreview">
+                        ×
+                    </button>
+                </header>
+                <div v-if="previewLoading" class="oz-preview__status" role="status">
+                    <span class="oz-spinner" aria-hidden="true"></span>
+                    <span>Reading the entry…</span>
+                </div>
+                <div v-else-if="previewError" class="oz-preview__status oz-preview__status--error">{{ previewError }}</div>
+                <pre v-else-if="previewKind === 'text'" class="oz-preview__text">{{ previewText }}</pre>
+                <div v-else-if="previewKind === 'image'" class="oz-preview__image">
+                    <img :src="previewImageSrc" :alt="previewName" />
+                </div>
+                <div v-else class="oz-preview__meta">
+                    <div v-for="row in previewMetaRows" :key="row.label" class="oz-preview__meta-row">
+                        <span class="oz-preview__meta-label">{{ row.label }}</span>
+                        <span class="oz-preview__meta-value">{{ row.value }}</span>
+                    </div>
+                    <p v-if="previewTruncated" class="oz-preview__note">
+                        The preview stops at the byte cap. Extract the archive to get the full content.
+                    </p>
+                </div>
+            </section>
         </div>
 
         <footer class="oz-status" role="status">
@@ -345,6 +415,7 @@ body {
     --oz-bar-height: 2.5rem;
     --oz-status-height: 1.5rem;
     --oz-tree-width: 13rem;
+    position: relative;
     display: flex;
     flex-direction: column;
     width: 100%;
@@ -1147,6 +1218,246 @@ body {
     overflow-wrap: anywhere;
 }
 
+.oz-recent {
+    position: absolute;
+    top: calc(var(--oz-bar-height) + 0.25rem);
+    left: 0.5rem;
+    z-index: 12;
+    display: flex;
+    flex-direction: column;
+    width: min(32rem, calc(100% - 1rem));
+    max-height: 60vh;
+    border: 1px solid var(--vmz-line-default, #e4e0f0);
+    border-radius: var(--vmz-radius-md, 6px);
+    background: var(--vmz-surface-paper, #ffffff);
+    box-shadow: 0 10px 30px rgba(27, 24, 48, 0.18);
+    overflow: auto;
+}
+
+.oz-recent__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 2rem;
+    padding: 0 0.5rem;
+    border-bottom: 1px solid var(--vmz-line-default, #e4e0f0);
+    background: var(--vmz-surface-mist, #f8f7fc);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.oz-recent__empty {
+    padding: 0.5rem;
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.71875rem;
+}
+
+.oz-recent__row {
+    display: grid;
+    grid-template-columns: minmax(8rem, 1fr) minmax(6rem, 1fr) auto;
+    gap: 0.5rem;
+    align-items: baseline;
+    padding: 0.375rem 0.5rem;
+    border: 0;
+    border-bottom: 1px solid var(--vmz-line-subtle, #f0edf8);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.75rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.oz-recent__row:hover {
+    background: var(--vmz-action-secondary-hover, #f2f0f9);
+}
+
+.oz-recent__name {
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.oz-recent__dir,
+.oz-recent__age {
+    overflow: hidden;
+    color: var(--vmz-text-tertiary, #6b6785);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.oz-recent-list {
+    width: min(34rem, 92%);
+    margin-top: 0.75rem;
+    border: 1px solid var(--vmz-line-default, #e4e0f0);
+    border-radius: var(--vmz-radius-md, 6px);
+    background: var(--vmz-surface-paper, #ffffff);
+    text-align: left;
+    pointer-events: auto;
+    overflow: hidden;
+}
+
+.oz-recent-list__head {
+    height: 1.75rem;
+    padding: 0 0.5rem;
+    border-bottom: 1px solid var(--vmz-line-subtle, #f0edf8);
+    background: var(--vmz-surface-mist, #f8f7fc);
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.6875rem;
+    line-height: 1.75rem;
+    text-transform: uppercase;
+}
+
+.oz-recent-list__row {
+    display: grid;
+    grid-template-columns: minmax(7rem, 1fr) minmax(5rem, 1fr) auto;
+    gap: 0.5rem;
+    align-items: baseline;
+    width: 100%;
+    padding: 0.3125rem 0.5rem;
+    border: 0;
+    border-bottom: 1px solid var(--vmz-line-subtle, #f0edf8);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.75rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.oz-recent-list__row:hover {
+    background: var(--vmz-action-secondary-hover, #f2f0f9);
+}
+
+.oz-recent-list__name {
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.oz-recent-list__dir,
+.oz-recent-list__age {
+    overflow: hidden;
+    color: var(--vmz-text-tertiary, #6b6785);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.oz-empty__hint {
+    margin: 0.5rem 0 0;
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.75rem;
+}
+
+.oz-preview {
+    display: flex;
+    flex: 0 0 26rem;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    border-left: 1px solid var(--vmz-line-default, #e4e0f0);
+    background: var(--vmz-surface-paper, #ffffff);
+}
+
+.oz-preview__head {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.375rem;
+    height: 2.25rem;
+    padding: 0 0.5rem;
+    border-bottom: 1px solid var(--vmz-line-subtle, #f0edf8);
+    background: var(--vmz-surface-mist, #f8f7fc);
+}
+
+.oz-preview__title {
+    max-width: 12rem;
+    overflow: hidden;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.oz-preview__head .oz-btn {
+    height: 1.625rem;
+    padding: 0 0.5rem;
+    font-size: 0.6875rem;
+}
+
+.oz-preview__status {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 1rem;
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.75rem;
+}
+
+.oz-preview__status--error {
+    color: var(--vmz-status-danger-foreground, #b42318);
+    text-align: center;
+    overflow-wrap: anywhere;
+}
+
+.oz-preview__text {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 0;
+    padding: 0.625rem 0.75rem;
+    overflow: auto;
+    font: 0.75rem/1.5 ui-monospace, Consolas, "Courier New", monospace;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.oz-preview__image {
+    display: grid;
+    flex: 1 1 auto;
+    min-height: 0;
+    place-items: center;
+    padding: 0.75rem;
+    overflow: auto;
+}
+
+.oz-preview__image img {
+    max-width: 100%;
+    max-height: 100%;
+}
+
+.oz-preview__meta {
+    flex: 1 1 auto;
+    padding: 0.625rem 0.75rem;
+    overflow: auto;
+}
+
+.oz-preview__meta-row {
+    display: grid;
+    grid-template-columns: 7rem 1fr;
+    gap: 0.5rem;
+    padding: 0.1875rem 0;
+    border-bottom: 1px solid var(--vmz-line-subtle, #f0edf8);
+    font-size: 0.75rem;
+}
+
+.oz-preview__meta-label {
+    color: var(--vmz-text-tertiary, #6b6785);
+}
+
+.oz-preview__meta-value {
+    overflow-wrap: anywhere;
+}
+
+.oz-preview__note {
+    margin: 0.5rem 0 0;
+    color: var(--vmz-text-tertiary, #6b6785);
+    font-size: 0.71875rem;
+}
+
 @media (max-width: 1000px) {
     .oz-tree {
         display: none;
@@ -1256,6 +1567,25 @@ export default class ZipperPage {
     canAddSource = false;
     canStartCreate = false;
 
+    recentItems = [];
+    recentRows = [];
+    recentOpen = false;
+    recentLoading = false;
+    previewOpen = false;
+    previewLoading = false;
+    previewError = "";
+    previewKind = "";
+    previewName = "";
+    previewText = "";
+    previewImageSrc = "";
+    previewMetaRows = [];
+    previewTruncated = false;
+    previewEntryIndex = -1;
+    canOpenEntry = false;
+    openingEntry = false;
+    _recentSeq = 0;
+    _previewSeq = 0;
+
     taskView = "";
     taskTitle = "";
     taskHint = "";
@@ -1285,7 +1615,10 @@ export default class ZipperPage {
     onMount() {
         this.installHostBridge();
         this.refreshStatus();
-        if (this.bridge()) this.requestCapabilities();
+        if (this.bridge()) {
+            this.requestCapabilities();
+            this.requestRecent();
+        }
         setTimeout(() => {
             const input = document.getElementById("oz-archive");
             if (input && !this.archivePath) input.focus();
@@ -1321,6 +1654,13 @@ export default class ZipperPage {
             else if (data.type === "testError") this.failVerify(String(data.message || "unknown error"));
             else if (data.type === "createResult") this.finishCreate(data.report || {});
             else if (data.type === "createError") this.failCreate(String(data.message || "unknown error"));
+            else if (data.type === "recentResult") this.applyRecent(data.items || [], data.id);
+            else if (data.type === "recentError") this.failRecent(String(data.message || "unknown error"), data.id);
+            else if (data.type === "previewResult") this.applyPreview(data.preview || {}, data.id);
+            else if (data.type === "previewError") this.failPreview(String(data.message || "unknown error"), data.id);
+            else if (data.type === "openEntryResult") this.applyOpenEntry(data.file || {});
+            else if (data.type === "openEntryError") this.failOpenEntry(String(data.message || "unknown error"));
+            else if (data.type === "fileDrop") this.applyFileDrop(data.paths || []);
         });
     }
 
@@ -1408,6 +1748,7 @@ export default class ZipperPage {
     }
 
     openArchive() {
+        this.closePreview();
         const archive = (this.archivePath || "").trim();
         if (!archive) {
             this.archivePath = "";
@@ -1450,6 +1791,7 @@ export default class ZipperPage {
         this.canVerify = true;
         this.refreshActions();
         this.refreshStatus();
+        this.requestRecent();
     }
 
     failList(message) {
@@ -1915,6 +2257,7 @@ export default class ZipperPage {
             return;
         }
         this.focusedKey = row.key;
+        this.requestPreview(row);
     }
 
     onTableKey(e) {
@@ -1981,6 +2324,170 @@ export default class ZipperPage {
 
     requestClose() {
         this.post({ type: "close" });
+    }
+
+    requestRecent() {
+        this._recentSeq += 1;
+        this.recentLoading = true;
+        if (!this.post({ type: "recent", id: this._recentSeq })) this.recentLoading = false;
+    }
+
+    applyRecent(items, id) {
+        if (id !== this._recentSeq) return;
+        this.recentLoading = false;
+        this.recentItems = Array.isArray(items) ? items : [];
+        this.recentRows = this.recentItems.map((item) => ({
+            path: String(item.path || ""),
+            name: this.basename(String(item.path || "")),
+            directory: this.dirname(String(item.path || "")),
+            age: this.formatAge(Number(item.lastOpenedUnixMs) || 0),
+        }));
+    }
+
+    failRecent(message, id) {
+        if (id !== this._recentSeq) return;
+        this.recentLoading = false;
+        this.recentRows = [];
+        this.statusText = `Recent list unavailable: ${message}`;
+    }
+
+    toggleRecent() {
+        this.recentOpen = !this.recentOpen;
+        if (this.recentOpen && !this.recentRows.length && !this.recentLoading) this.requestRecent();
+    }
+
+    openRecent(path) {
+        this.recentOpen = false;
+        this.archivePath = String(path || "");
+        this.openArchive();
+    }
+
+    requestPreview(row) {
+        const archive = (this.listingPath || this.archivePath || "").trim();
+        if (!archive || !row || row.isDir) return;
+        const index = Number(row.index);
+        if (!Number.isFinite(index) || index < 0) return;
+        this._previewSeq += 1;
+        this.previewOpen = true;
+        this.previewLoading = true;
+        this.previewError = "";
+        this.previewName = row.name;
+        this.previewKind = "";
+        this.previewText = "";
+        this.previewImageSrc = "";
+        this.previewMetaRows = [];
+        this.previewTruncated = false;
+        this.previewEntryIndex = index;
+        this.canOpenEntry = false;
+        this.openingEntry = false;
+        if (!this.post({ type: "preview", id: this._previewSeq, path: archive, index })) {
+            this.previewLoading = false;
+            this.previewError = "Native bridge unavailable (not running inside the WebView2 host).";
+        }
+    }
+
+    applyPreview(preview, id) {
+        if (id !== this._previewSeq) return;
+        this.previewLoading = false;
+        this.previewError = "";
+        this.previewKind = String(preview.kind || "binary");
+        this.previewTruncated = preview.truncated === true;
+        this.canOpenEntry = true;
+        const total = this.formatBytes(Number(preview.totalBytes) || 0);
+        const shown = this.formatBytes(Number(preview.previewedBytes) || 0);
+        if (this.previewKind === "text") {
+            let text = String(preview.text || "");
+            if (text.length > 200000) {
+                text = text.slice(0, 200000);
+                this.previewTruncated = true;
+            }
+            this.previewText = text;
+        }
+        else if (this.previewKind === "image") {
+            const mime = String(preview.mime || "application/octet-stream");
+            this.previewImageSrc = `data:${mime};base64,${String(preview.dataBase64 || "")}`;
+        }
+        else {
+            this.previewMetaRows = [
+                { label: "Kind", value: this.previewKind === "empty" ? "Empty file" : "Binary payload" },
+                { label: "Size", value: total },
+                { label: "Read", value: shown },
+                { label: "Encoding", value: preview.encoding || "—" },
+            ];
+        }
+        this.statusText = `Previewing ${this.previewName}.`;
+    }
+
+    failPreview(message, id) {
+        if (id !== this._previewSeq) return;
+        this.previewLoading = false;
+        this.previewError = message;
+        this.canOpenEntry = false;
+    }
+
+    closePreview() {
+        this._previewSeq += 1;
+        this.previewOpen = false;
+        this.previewLoading = false;
+        this.previewError = "";
+        this.previewKind = "";
+        this.previewText = "";
+        this.previewImageSrc = "";
+        this.previewMetaRows = [];
+        this.previewTruncated = false;
+        this.previewEntryIndex = -1;
+        this.canOpenEntry = false;
+        this.openingEntry = false;
+    }
+
+    openEntryExternally() {
+        const archive = (this.listingPath || "").trim();
+        if (!archive || this.previewEntryIndex < 0) return;
+        this.openingEntry = true;
+        if (!this.post({ type: "openEntry", id: this._previewSeq, path: archive, index: this.previewEntryIndex })) {
+            this.openingEntry = false;
+        }
+    }
+
+    applyOpenEntry(file) {
+        this.openingEntry = false;
+        this.statusText = `Opened ${String(file.name || this.previewName)} with the default program.`;
+        this.refreshStatus();
+    }
+
+    failOpenEntry(message) {
+        this.openingEntry = false;
+        this.setError(message);
+        this.refreshStatus();
+    }
+
+    applyFileDrop(paths) {
+        const list = Array.isArray(paths) ? paths.filter((path) => typeof path === "string" && path.trim()) : [];
+        if (!list.length) return;
+        const extensions = [".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".txz", ".7z"];
+        const archive = list.find((path) => extensions.some((extension) => path.toLowerCase().endsWith(extension)));
+        if (!archive) {
+            this.statusText = "Only zip, tar and 7z archives can be opened here.";
+            return;
+        }
+        if (list.length > 1) this.statusText = `Opening ${this.basename(archive)} of ${list.length} dropped files.`;
+        this.openRecent(archive);
+    }
+
+    dirname(path) {
+        const value = String(path || "");
+        const index = Math.max(value.lastIndexOf("\\"), value.lastIndexOf("/"));
+        return index > 0 ? value.slice(0, index) : "—";
+    }
+
+    formatAge(ms) {
+        if (!ms) return "—";
+        const seconds = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+        if (seconds < 60) return "just now";
+        if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+        if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`;
+        if (seconds < 86400 * 30) return `${Math.floor(seconds / 86400)} d ago`;
+        return this.formatTime(ms).slice(0, 10);
     }
 
     refreshActions() {
