@@ -9,17 +9,18 @@ mod audit;
 
 use std::{
     cell::RefCell,
+    fs,
     path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::Instant,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use open_zipper_core::{
-    ArchiveLimits, CapabilityState, CreateOptions, Error as CoreError, ErrorCode, ExtractOptions, OverwritePolicy, Platform, capabilities,
-    create, extract, list, test,
+    ArchiveLimits, CapabilityState, CreateOptions, DEFAULT_PREVIEW_CAP, Error as CoreError, ErrorCode, ExtractOptions, ExtractedEntryFile,
+    OverwritePolicy, Platform, PreviewResult, capabilities, create, extract, extract_entry, list, preview, recent, test,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -92,6 +93,9 @@ struct GuiCloseResult {
 
 struct ZipperIpcHandler {
     close_requested: Arc<AtomicBool>,
+    /// Directory this host session materializes single entries into for
+    /// "open with the default program"; the page never names a destination.
+    temp_dir: PathBuf,
 }
 
 impl IpcHandler for ZipperIpcHandler {
@@ -107,19 +111,65 @@ impl IpcHandler for ZipperIpcHandler {
                 self.close_requested.store(true, Ordering::SeqCst);
                 IpcOutcome::CloseWindow
             }
-            "capabilities" => match serde_json::to_value(capabilities()) {
+            "capabilities" => match audited_capabilities() {
                 Ok(report) => IpcOutcome::ReplyToPage(json!({ "type": "capabilitiesResult", "id": id, "capabilities": report }).to_string()),
                 Err(error) => {
                     IpcOutcome::ReplyToPage(json!({ "type": "capabilitiesError", "id": id, "message": error.to_string() }).to_string())
                 }
             },
+            "recent" => match audited_recent() {
+                Ok(items) => IpcOutcome::ReplyToPage(json!({ "type": "recentResult", "id": id, "items": items }).to_string()),
+                Err(error) => IpcOutcome::ReplyToPage(json!({ "type": "recentError", "id": id, "message": error.to_string() }).to_string()),
+            },
+            "preview" => {
+                let path = value.get("path").and_then(Value::as_str).unwrap_or("").to_string();
+                let index = value.get("index").and_then(Value::as_u64).map(|index| index as usize).unwrap_or(usize::MAX);
+                let cap_bytes = value.get("capBytes").and_then(Value::as_u64).unwrap_or(DEFAULT_PREVIEW_CAP);
+                let limits = limits_from_json(value.get("limits"));
+                if path.trim().is_empty() {
+                    return IpcOutcome::ReplyToPage(
+                        json!({ "type": "previewError", "id": id, "message": "preview requires a path" }).to_string(),
+                    );
+                }
+                match audited_preview(path, index, cap_bytes, limits) {
+                    Ok(result) => IpcOutcome::ReplyToPage(
+                        json!({ "type": "previewResult", "id": id, "preview": serde_json::to_value(&result).unwrap_or(Value::Null) })
+                            .to_string(),
+                    ),
+                    Err(error) => {
+                        IpcOutcome::ReplyToPage(json!({ "type": "previewError", "id": id, "message": error.to_string() }).to_string())
+                    }
+                }
+            }
+            "openEntry" => {
+                let path = value.get("path").and_then(Value::as_str).unwrap_or("").to_string();
+                let index = value.get("index").and_then(Value::as_u64).map(|index| index as usize).unwrap_or(usize::MAX);
+                let limits = limits_from_json(value.get("limits"));
+                if path.trim().is_empty() {
+                    return IpcOutcome::ReplyToPage(
+                        json!({ "type": "openEntryError", "id": id, "message": "openEntry requires a path" }).to_string(),
+                    );
+                }
+                match audited_open_entry(path, index, &self.temp_dir, limits) {
+                    Ok(file) => IpcOutcome::ReplyToPage(
+                        json!({ "type": "openEntryResult", "id": id, "file": serde_json::to_value(&file).unwrap_or(Value::Null) }).to_string(),
+                    ),
+                    Err(error) => {
+                        IpcOutcome::ReplyToPage(json!({ "type": "openEntryError", "id": id, "message": error.to_string() }).to_string())
+                    }
+                }
+            }
             "list" => {
                 let path = value.get("path").and_then(Value::as_str).unwrap_or("").to_string();
                 let limits = limits_from_json(value.get("limits"));
                 match audited_list(path.clone(), limits) {
-                    Ok(report) => IpcOutcome::ReplyToPage(
-                        json!({ "type": "listResult", "id": id, "listing": serde_json::to_value(&report).unwrap_or(Value::Null) }).to_string(),
-                    ),
+                    Ok(report) => {
+                        record_recent_open(&path);
+                        IpcOutcome::ReplyToPage(
+                            json!({ "type": "listResult", "id": id, "listing": serde_json::to_value(&report).unwrap_or(Value::Null) })
+                                .to_string(),
+                        )
+                    }
                     Err(error) => IpcOutcome::ReplyToPage(json!({ "type": "listError", "id": id, "message": error.to_string() }).to_string()),
                 }
             }
@@ -265,6 +315,130 @@ fn audited_test(path: String, limits: ArchiveLimits) -> Result<open_zipper_core:
         Ok((report, audit::Summary::new(count as u64, summary)))
     })
     .map_err(core_error)
+}
+
+/// Reports the core capability table plus the host-provided entries the page
+/// shows, so `shell-open` and `file-drop` follow the same shape as archive rows.
+fn audited_capabilities() -> Result<Value> {
+    audit::run("capabilities", Mode::DryRun, Value::Null, || {
+        let report = capabilities();
+        let mut value = serde_json::to_value(&report).map_err(|error| CoreError::message(error.to_string()))?;
+        let windows = report.platform == Platform::Windows;
+        if let Some(entries) = value.get_mut("entries").and_then(Value::as_array_mut) {
+            entries.push(json!({
+                "capability": "shell-open",
+                "available": true,
+                "detail": "entries are opened with the system default program through the WAE shell facade",
+            }));
+            entries.push(if windows {
+                json!({
+                    "capability": "file-drop",
+                    "available": true,
+                    "detail": "files dropped on the window are delivered to the page with full paths",
+                })
+            }
+            else {
+                json!({
+                    "capability": "file-drop",
+                    "available": false,
+                    "code": "unsupported_platform",
+                    "detail": "the file drop bridge is wired for Windows only in this build",
+                })
+            });
+        }
+        let count = report.entries.len() as u64;
+        Ok((value, audit::Summary::new(count, format!("platform {:?}, {count} capabilities", report.platform))))
+    })
+    .map_err(core_error)
+}
+
+/// Reads the recent-archive store for the GUI welcome surface.
+fn audited_recent() -> Result<Vec<recent::RecentItem>> {
+    audit::run("recent", Mode::DryRun, Value::Null, || {
+        let (dir, platform) =
+            recent_store().ok_or_else(|| CoreError::coded(ErrorCode::InvalidOption, "no per-user directory for the recent store"))?;
+        let items = recent::load(&dir, platform);
+        let count = items.len();
+        Ok((items, audit::Summary::new(count as u64, format!("{count} recent archives"))))
+    })
+    .map_err(core_error)
+}
+
+/// Reads one bounded entry payload for the preview pane.
+fn audited_preview(path: String, index: usize, cap_bytes: u64, limits: ArchiveLimits) -> Result<PreviewResult> {
+    let params = json!({ "archive": path.clone(), "index": index, "capBytes": cap_bytes });
+    audit::run("preview", Mode::DryRun, params, || {
+        let result = preview(Path::new(&path), index, cap_bytes, &limits)?;
+        let summary = format!("{:?}: {} of {} bytes of entry `{}`", result.kind, result.previewed_bytes, result.total_bytes, result.name);
+        Ok((result, audit::Summary::new(1, summary)))
+    })
+    .map_err(core_error)
+}
+
+/// Materializes one entry under the host-managed temp directory and launches
+/// the system default program. The page only names the archive and the index.
+fn audited_open_entry(path: String, index: usize, temp_dir: &Path, limits: ArchiveLimits) -> Result<ExtractedEntryFile> {
+    let params = json!({ "archive": path.clone(), "index": index, "tempDir": temp_dir.display().to_string() });
+    audit::run("open-entry", Mode::Execute, params, || {
+        fs::create_dir_all(temp_dir).map_err(|error| CoreError::io(temp_dir.display().to_string(), error))?;
+        let file = extract_entry(Path::new(&path), index, temp_dir, &limits)?;
+        wae::shell::open_path(Path::new(&file.path))
+            .map_err(|error| CoreError::coded(ErrorCode::Message, format!("shell open failed: {error}")))?;
+        Ok((file.clone(), audit::Summary::new(1, format!("opened `{}` externally", file.name))))
+    })
+    .map_err(core_error)
+}
+
+fn recent_store() -> Option<(PathBuf, Platform)> {
+    let platform = Platform::current();
+    let file = recent::file_path(platform, &|key| std::env::var(key).ok())?;
+    Some((file.parent()?.to_path_buf(), platform))
+}
+
+/// Records a successful GUI listing as a recent open. UI state must never
+/// change the listing result, so every failure here is silently ignored.
+fn record_recent_open(path: &str) {
+    let Some((dir, platform)) = recent_store()
+    else {
+        return;
+    };
+    let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).map(|value| value.as_millis() as i64).unwrap_or_default();
+    let _ = recent::record(&dir, Path::new(path), now_ms, platform);
+}
+
+/// The per-process directory external open writes into.
+fn preview_temp_dir() -> PathBuf {
+    std::env::temp_dir().join("OpenZipper").join(format!("preview-{}", std::process::id()))
+}
+
+/// Best-effort sweep of preview temp directories older than a day. Only the
+/// host's own `preview-*` children under `<temp>/OpenZipper` are removed.
+fn sweep_preview_temp(current: &Path) {
+    let Some(parent) = current.parent()
+    else {
+        return;
+    };
+    let Ok(read_dir) = fs::read_dir(parent)
+    else {
+        return;
+    };
+    let cutoff = SystemTime::now() - Duration::from_secs(24 * 60 * 60);
+    for entry in read_dir.flatten() {
+        let name = entry.file_name();
+        if name.to_string_lossy().strip_prefix("preview-").is_none() {
+            continue;
+        }
+        if current.file_name().is_some_and(|keep| name == keep) {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata()
+        else {
+            continue;
+        };
+        if metadata.modified().ok().is_some_and(|modified| modified < cutoff) {
+            let _ = fs::remove_dir_all(entry.path());
+        }
+    }
 }
 
 fn json_to_js(env: Env, value: &Value) -> Result<JsValue> {
@@ -521,6 +695,28 @@ fn test_archive_js(ctx: CallContext) -> Result<JsValue> {
     value_to_js(ctx.env(), &report)
 }
 
+#[function(js_name = "previewEntry")]
+fn preview_entry_js(ctx: CallContext) -> Result<JsValue> {
+    let arg = ctx.arg(0).ok();
+    let path = required_string_prop(arg, "path", "previewEntry")?;
+    let Some(value) = arg
+    else {
+        return Err(Error::new("previewEntry expects an options object with `path` and `index`"));
+    };
+    let index_value = value.get_named("index").map_err(|_| Error::new("previewEntry requires `index`"))?;
+    if index_value.is_undefined()? {
+        return Err(Error::new("previewEntry requires `index`"));
+    }
+    let raw_index = index_value.as_i64()?;
+    if raw_index < 0 {
+        return Err(Error::new("`index` must not be negative"));
+    }
+    let cap_bytes = number_prop(arg, "capBytes", DEFAULT_PREVIEW_CAP)?;
+    let limits = limits_from_js(arg)?;
+    let result = audited_preview(path, raw_index as usize, cap_bytes, limits)?;
+    value_to_js(ctx.env(), &result)
+}
+
 #[function]
 fn version(ctx: CallContext) -> Result<JsValue> {
     let version = env!("CARGO_PKG_VERSION");
@@ -618,14 +814,19 @@ fn open_gui(ctx: CallContext) -> Result<JsValue> {
             let mut options = options;
             options.width = width;
             options.height = height;
+            options.accept_file_drop = true;
             let close_requested = Arc::new(AtomicBool::new(false));
-            let host =
-                WebViewHost::open(options, Box::new(ZipperIpcHandler { close_requested: Arc::clone(&close_requested) })).map_err(|error| {
-                    let core = webview_error(&error);
-                    failure = Some(error);
-                    core
-                })?;
+            let host = WebViewHost::open(
+                options,
+                Box::new(ZipperIpcHandler { close_requested: Arc::clone(&close_requested), temp_dir: preview_temp_dir() }),
+            )
+            .map_err(|error| {
+                let core = webview_error(&error);
+                failure = Some(error);
+                core
+            })?;
             let backend = host.backend_name();
+            sweep_preview_temp(&preview_temp_dir());
             let state = GuiState { host, backend, opened_at: Instant::now(), close_requested };
             let summary = format!("window opened with {backend} backend");
             Ok((GuiOpenAction::Opened(state), audit::Summary::new(1, summary)))
@@ -850,6 +1051,7 @@ register_module![
     extract_js,
     create_js,
     test_archive_js,
+    preview_entry_js,
     version,
     capabilities_js,
     open_gui,
@@ -859,3 +1061,46 @@ register_module![
     configure_audit_js,
     audit_query_js
 ];
+
+#[cfg(test)]
+mod ipc_routing_tests {
+    use super::*;
+
+    fn handler() -> ZipperIpcHandler {
+        ZipperIpcHandler { close_requested: Arc::new(AtomicBool::new(false)), temp_dir: PathBuf::from("unused-in-these-cases") }
+    }
+
+    #[test]
+    fn malformed_and_unknown_messages_are_ignored() {
+        let mut handler = handler();
+        assert!(matches!(handler.on_ipc("not json"), IpcOutcome::Ignored));
+        assert!(matches!(handler.on_ipc(r#"{"type":"nope","id":1}"#), IpcOutcome::Ignored));
+    }
+
+    #[test]
+    fn preview_and_open_entry_reject_an_empty_path_before_any_audit() {
+        let mut handler = handler();
+        let IpcOutcome::ReplyToPage(text) = handler.on_ipc(r#"{"type":"preview","id":1,"index":0,"path":" "}"#)
+        else {
+            panic!("expected a preview reply");
+        };
+        let value: Value = serde_json::from_str(&text).expect("preview reply json");
+        assert_eq!(value["type"], "previewError");
+        assert_eq!(value["id"], 1);
+
+        let IpcOutcome::ReplyToPage(text) = handler.on_ipc(r#"{"type":"openEntry","id":2,"index":0}"#)
+        else {
+            panic!("expected an open entry reply");
+        };
+        let value: Value = serde_json::from_str(&text).expect("open entry reply json");
+        assert_eq!(value["type"], "openEntryError");
+        assert_eq!(value["id"], 2);
+    }
+
+    #[test]
+    fn close_marks_the_requested_flag() {
+        let mut handler = handler();
+        assert!(matches!(handler.on_ipc(r#"{"type":"close"}"#), IpcOutcome::CloseWindow));
+        assert!(handler.close_requested.load(Ordering::SeqCst));
+    }
+}
