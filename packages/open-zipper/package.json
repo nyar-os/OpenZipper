@@ -29,7 +29,7 @@
         "typecheck": "tsc -p tsconfig.json --noEmit"
     },
     "dependencies": {
-        "@wae/commander": "0.0.3"
+        "@wae/commander": "0.0.6"
     },
     "optionalDependencies": {
         "@wae/open-zipper-darwin-arm64": "workspace:*",

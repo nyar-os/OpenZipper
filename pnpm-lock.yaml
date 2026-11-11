@@ -21,8 +21,8 @@ importers:
   packages/open-zipper:
     dependencies:
       '@wae/commander':
-        specifier: 0.0.3
-        version: 0.0.3
+        specifier: 0.0.6
+        version: 0.0.6
     optionalDependencies:
       '@wae/open-zipper-darwin-arm64':
         specifier: workspace:*
@@ -184,8 +184,8 @@ packages:
       typescript:
         optional: true
 
-  '@wae/commander@0.0.3':
-    resolution: {integrity: sha512-WXF1STqkj4x4T8ePr0wqXEfN+hDziy0UxbruI8GJbDcEQ4JWVsu9oK3RiyStLt4pjRqGHFNSIHcrDMHioc+4Bg==}
+  '@wae/commander@0.0.6':
+    resolution: {integrity: sha512-jRTwhX6iHPPQuchs4+BIfbrEjulGNV8w837jhwr+uxPTXOe+iWXw77OXz285jyEaLKZEGEq8FArJBW/YJWzFGA==}
     engines: {node: '>=20'}
 
   boolbase@2.0.0:
@@ -375,7 +375,7 @@ snapshots:
     transitivePeerDependencies:
       - canvas
 
-  '@wae/commander@0.0.3': {}
+  '@wae/commander@0.0.6': {}
 
   boolbase@2.0.0: {}
 
