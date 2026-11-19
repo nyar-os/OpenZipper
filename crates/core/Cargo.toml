@@ -7,11 +7,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-acorn-codec = { workspace = true }
-acorn-core = { workspace = true }
-acorn-source = { workspace = true }
-acorn-tar = { workspace = true }
-acorn-zip = { workspace = true }
+boost-source = { workspace = true }
+data-binary-core = { workspace = true }
+data-binary-tar = { workspace = true }
+data-binary-zip = { workspace = true }
+data-compression = { workspace = true }
 bzip2 = "0.6"
 encoding_rs = "0.8"
 serde = { workspace = true }

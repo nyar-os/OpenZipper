@@ -5,8 +5,8 @@ use std::{
     path::Path,
 };
 
-use acorn_codec::CodecLimits;
-use acorn_tar::{StreamChunk, TarArchive, TarEntry, TarEntryKind, TarGzEntry, TarGzError, TarGzStream, TarIndexError, index_tar};
+use data_compression::CodecLimits;
+use data_binary_tar::{StreamChunk, TarArchive, TarEntry, TarEntryKind, TarGzEntry, TarGzError, TarGzStream, TarIndexError, index_tar};
 use bzip2::read::BzDecoder;
 use xz2::read::XzDecoder;
 

@@ -7,8 +7,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use acorn_tar::{TarEntryDraft, TarWriter};
-use acorn_zip::{ZipEntry, ZipWriter};
+use data_binary_tar::{TarEntryDraft, TarWriter};
+use data_binary_zip::{ZipEntry, ZipWriter};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 

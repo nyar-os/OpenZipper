@@ -5,8 +5,8 @@ use std::{
     path::Path,
 };
 
-use acorn_codec::{CodecLimits, compression::StreamChunk};
-use acorn_zip::{ZipIndexError, ZipMember, ZipMemberStream, ZipViewError, index_zip};
+use data_compression::{CodecLimits, StreamChunk};
+use data_binary_zip::{ZipIndexError, ZipMember, ZipMemberStream, ZipViewError, index_zip};
 
 use crate::{
     encoding::decode_name,
@@ -52,7 +52,7 @@ impl PreparedEntry {
 }
 
 /// Opens the archive file and indexes its central directory without reading payloads.
-fn open_index(path: &Path) -> Result<(FileSource, acorn_zip::ZipArchiveIndex)> {
+fn open_index(path: &Path) -> Result<(FileSource, data_binary_zip::ZipArchiveIndex)> {
     let source = FileSource::open(path)?;
     let index = index_zip(&source).map_err(map_index_error)?;
     Ok((source, index))

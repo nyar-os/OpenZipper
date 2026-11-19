@@ -86,13 +86,13 @@ fn cp437_entry_names_are_restored() {
 fn zip64_members_are_read() {
     let base = TempDir::new("zip64");
     let archive = base.join("zip64.zip");
-    let mut writer = acorn_zip::ZipWriter::with_zip64(acorn_zip::Zip64Mode::Always);
-    let mut member = acorn_zip::ZipEntry::deflated(b"payload.txt", b"zipped".to_vec());
+    let mut writer = data_binary_zip::ZipWriter::with_zip64(data_binary_zip::Zip64Mode::Always);
+    let mut member = data_binary_zip::ZipEntry::deflated(b"payload.txt", b"zipped".to_vec());
     member.version_made_by = (3 << 8) | 20;
     writer.push(member);
     std::fs::write(&archive, writer.into_bytes().expect("build zip64")).expect("write zip64");
 
-    let index = acorn_zip::index_zip_bytes("zip64", std::fs::read(&archive).expect("read zip64")).expect("index zip64");
+    let index = data_binary_zip::index_zip_bytes("zip64", std::fs::read(&archive).expect("read zip64")).expect("index zip64");
     assert_eq!(index.members.len(), 1);
 
     let listing = list(&archive, &Default::default()).expect("list zip64");
@@ -106,19 +106,19 @@ fn zip64_members_are_read() {
 fn zip_timestamps_round_trip() {
     let base = TempDir::new("zip-time");
     let archive = base.join("time.zip");
-    let civil = acorn_zip::ZipDateTime::new(2001, 9, 9, 1, 46, 40).expect("valid civil time");
+    let civil = data_binary_zip::ZipDateTime::new(2001, 9, 9, 1, 46, 40).expect("valid civil time");
     let dos = civil.to_dos().expect("encode dos time");
     let unix = 1_000_000_000_i64;
 
-    let mut writer = acorn_zip::ZipWriter::new();
-    let mut member = acorn_zip::ZipEntry::stored(b"time.txt", b"time".to_vec());
+    let mut writer = data_binary_zip::ZipWriter::new();
+    let mut member = data_binary_zip::ZipEntry::stored(b"time.txt", b"time".to_vec());
     member.modified = dos;
     member.modified_unix = Some(unix);
     writer.push(member);
     let bytes = writer.into_bytes().expect("build timed zip");
     std::fs::write(&archive, &bytes).expect("write timed zip");
 
-    let index = acorn_zip::index_zip_bytes("time", bytes).expect("index timed zip");
+    let index = data_binary_zip::index_zip_bytes("time", bytes).expect("index timed zip");
     assert_eq!(index.members[0].modified.parts(), Some(civil));
 
     let listing = list(&archive, &Default::default()).expect("list timed zip");

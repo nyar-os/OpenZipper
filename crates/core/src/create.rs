@@ -5,9 +5,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use acorn_source::WriteError;
-use acorn_tar::{TarEntryDraft, TarGz, TarWriter};
-use acorn_zip::{ZipDateTime, ZipDosDateTime, ZipStreamEntry, ZipStreamWriter, ZipWriteError};
+use boost_source::binary::WriteError;
+use data_binary_tar::{TarEntryDraft, TarGz, TarWriter};
+use data_binary_zip::{ZipDateTime, ZipDosDateTime, ZipStreamEntry, ZipStreamWriter, ZipWriteError};
 use bzip2::{Compression as BzCompression, write::BzEncoder};
 use xz2::write::XzEncoder;
 

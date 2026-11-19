@@ -3,44 +3,6 @@
 version = 4
 
 [[package]]
-name = "acorn-codec"
-version = "0.0.1"
-source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=ba97e361c1ed94aae35bdf4bb94e35d4443d0765#ba97e361c1ed94aae35bdf4bb94e35d4443d0765"
-
-[[package]]
-name = "acorn-core"
-version = "0.0.1"
-source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=ba97e361c1ed94aae35bdf4bb94e35d4443d0765#ba97e361c1ed94aae35bdf4bb94e35d4443d0765"
-dependencies = [
- "boost-diagnostic",
-]
-
-[[package]]
-name = "acorn-source"
-version = "0.0.1"
-source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=ba97e361c1ed94aae35bdf4bb94e35d4443d0765#ba97e361c1ed94aae35bdf4bb94e35d4443d0765"
-
-[[package]]
-name = "acorn-tar"
-version = "0.0.1"
-source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=ba97e361c1ed94aae35bdf4bb94e35d4443d0765#ba97e361c1ed94aae35bdf4bb94e35d4443d0765"
-dependencies = [
- "acorn-codec",
- "acorn-core",
- "acorn-source",
-]
-
-[[package]]
-name = "acorn-zip"
-version = "0.0.1"
-source = "git+https://github.com/yggdrasil-language/acorn.rs.git?rev=ba97e361c1ed94aae35bdf4bb94e35d4443d0765#ba97e361c1ed94aae35bdf4bb94e35d4443d0765"
-dependencies = [
- "acorn-codec",
- "acorn-core",
- "acorn-source",
-]
-
-[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -91,18 +53,62 @@ dependencies = [
 ]
 
 [[package]]
-name = "boost-diagnostic"
+name = "boost-collection"
 version = "0.1.0"
-source = "git+https://github.com/oovm/rust-boost?rev=9aa52745d6eae2d7748c76e4e3e6555e1f6e4b86#9aa52745d6eae2d7748c76e4e3e6555e1f6e4b86"
+source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
 dependencies = [
+ "boost-collection-macro",
+]
+
+[[package]]
+name = "boost-collection-macro"
+version = "0.1.0"
+source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
+]
+
+[[package]]
+name = "boost-console"
+version = "0.1.0"
+source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+
+[[package]]
+name = "boost-harness"
+version = "0.1.0"
+source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+dependencies = [
+ "boost-console",
+ "boost-harness-macro",
+ "boost-math",
  "boost-source",
  "serde",
 ]
 
 [[package]]
+name = "boost-harness-macro"
+version = "0.1.0"
+source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
+]
+
+[[package]]
+name = "boost-math"
+version = "0.1.0"
+source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+dependencies = [
+ "boost-collection",
+]
+
+[[package]]
 name = "boost-source"
 version = "0.1.0"
-source = "git+https://github.com/oovm/rust-boost?rev=9aa52745d6eae2d7748c76e4e3e6555e1f6e4b86#9aa52745d6eae2d7748c76e4e3e6555e1f6e4b86"
+source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
 dependencies = [
  "serde",
 ]
@@ -200,6 +206,50 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
 dependencies = [
  "hybrid-array",
+]
+
+[[package]]
+name = "data-binary-core"
+version = "0.1.0"
+source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+dependencies = [
+ "boost-harness",
+]
+
+[[package]]
+name = "data-binary-tar"
+version = "0.1.0"
+source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+dependencies = [
+ "boost-source",
+ "data-binary-core",
+ "data-compression",
+]
+
+[[package]]
+name = "data-binary-zip"
+version = "0.1.0"
+source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+dependencies = [
+ "boost-source",
+ "data-binary-core",
+ "data-checksum",
+ "data-compression",
+]
+
+[[package]]
+name = "data-checksum"
+version = "0.1.0"
+source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+
+[[package]]
+name = "data-compression"
+version = "0.1.0"
+source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+dependencies = [
+ "data-binary-core",
+ "data-checksum",
+ "ruzstd",
 ]
 
 [[package]]
@@ -588,12 +638,12 @@ dependencies = [
 name = "open-zipper-core"
 version = "0.0.0"
 dependencies = [
- "acorn-codec",
- "acorn-core",
- "acorn-source",
- "acorn-tar",
- "acorn-zip",
+ "boost-source",
  "bzip2",
+ "data-binary-core",
+ "data-binary-tar",
+ "data-binary-zip",
+ "data-compression",
  "encoding_rs",
  "serde",
  "sevenz-rust2",
@@ -659,6 +709,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
+name = "ruzstd"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69e4ce4a039f42bf25920b95667e4d789e98749ab11bbb8d2c2936f788421bb5"
+dependencies = [
+ "twox-hash",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -691,7 +750,7 @@ checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -775,9 +834,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "3.0.9"
+version = "3.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d78c8dee4c7bf0e14673097256fed6142ce9d3b85a408189d07482442145823b"
+checksum = "4ae9ccbea3a7b0b09443036490c8f34a8b1b760fd345e5c0dae0aac718faea79"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -801,7 +860,7 @@ checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -824,13 +883,14 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
 name = "wae"
-version = "0.0.3"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=33dbeeb033fe8d8ffa69e587311677033766eb70#33dbeeb033fe8d8ffa69e587311677033766eb70"
+version = "0.0.5"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 dependencies = [
  "wae-audit",
- "wae-dist",
  "wae-macros",
  "wae-napi",
+ "wae-plugins",
+ "wae-shell",
  "wae-webview",
  "wae-webview-linux",
  "wae-webview-macos",
@@ -839,8 +899,8 @@ dependencies = [
 
 [[package]]
 name = "wae-audit"
-version = "0.0.3"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=33dbeeb033fe8d8ffa69e587311677033766eb70#33dbeeb033fe8d8ffa69e587311677033766eb70"
+version = "0.0.5"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 dependencies = [
  "serde",
  "serde_json",
@@ -848,17 +908,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "wae-dist"
-version = "0.0.3"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=33dbeeb033fe8d8ffa69e587311677033766eb70#33dbeeb033fe8d8ffa69e587311677033766eb70"
-dependencies = [
- "thiserror",
-]
-
-[[package]]
 name = "wae-macros"
-version = "0.0.3"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=33dbeeb033fe8d8ffa69e587311677033766eb70#33dbeeb033fe8d8ffa69e587311677033766eb70"
+version = "0.0.5"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -867,21 +919,40 @@ dependencies = [
 
 [[package]]
 name = "wae-napi"
-version = "0.0.3"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=33dbeeb033fe8d8ffa69e587311677033766eb70#33dbeeb033fe8d8ffa69e587311677033766eb70"
+version = "0.0.5"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 dependencies = [
  "libloading",
 ]
 
 [[package]]
+name = "wae-plugins"
+version = "0.0.5"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "wae-shell"
+version = "0.0.5"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
+dependencies = [
+ "wae-webview",
+ "windows",
+]
+
+[[package]]
 name = "wae-webview"
-version = "0.0.3"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=33dbeeb033fe8d8ffa69e587311677033766eb70#33dbeeb033fe8d8ffa69e587311677033766eb70"
+version = "0.0.5"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 
 [[package]]
 name = "wae-webview-linux"
-version = "0.0.3"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=33dbeeb033fe8d8ffa69e587311677033766eb70#33dbeeb033fe8d8ffa69e587311677033766eb70"
+version = "0.0.5"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 dependencies = [
  "libloading",
  "wae-webview",
@@ -889,8 +960,8 @@ dependencies = [
 
 [[package]]
 name = "wae-webview-macos"
-version = "0.0.3"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=33dbeeb033fe8d8ffa69e587311677033766eb70#33dbeeb033fe8d8ffa69e587311677033766eb70"
+version = "0.0.5"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 dependencies = [
  "objc2",
  "objc2-app-kit",
@@ -901,9 +972,10 @@ dependencies = [
 
 [[package]]
 name = "wae-webview-win32"
-version = "0.0.3"
-source = "git+https://github.com/doki-land/wae-framework.git?rev=33dbeeb033fe8d8ffa69e587311677033766eb70#33dbeeb033fe8d8ffa69e587311677033766eb70"
+version = "0.0.5"
+source = "git+https://github.com/doki-land/wae-framework.git?rev=836b4b0441c01c761686f3f0a4856e3e98b80423#836b4b0441c01c761686f3f0a4856e3e98b80423"
 dependencies = [
+ "serde_json",
  "wae-webview",
  "webview2-com",
  "windows",
@@ -940,7 +1012,7 @@ dependencies = [
  "bumpalo",
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
  "wasm-bindgen-shared",
 ]
 
