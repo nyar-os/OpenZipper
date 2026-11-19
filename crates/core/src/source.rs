@@ -12,8 +12,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use acorn_source::{
-    ByteSink, ByteSource, ReadOutcome, ReadResult, SinkCapabilities, SourceCapabilities, SourceIdentity, WriteError, WriteOutcome,
+use boost_source::binary::{
+    ByteSink, ByteSource, ContentIdentity, ReadOutcome, ReadResult, SinkCapabilities, SourceCapabilities, WriteError, WriteOutcome,
 };
 
 use crate::{Error, Result};
@@ -26,7 +26,7 @@ use crate::{Error, Result};
 pub struct FileSource {
     file: File,
     path: PathBuf,
-    identity: SourceIdentity,
+    identity: ContentIdentity,
     length: u64,
 }
 
@@ -35,7 +35,7 @@ impl FileSource {
     pub fn open(path: &Path) -> Result<Self> {
         let file = File::open(path).map_err(|error| Error::io(path.display().to_string(), error))?;
         let length = file.metadata().map_err(|error| Error::io(path.display().to_string(), error))?.len();
-        let identity = SourceIdentity::new(path.display().to_string());
+        let identity = ContentIdentity::new(path.display().to_string());
         Ok(Self { file, path: path.to_path_buf(), identity, length })
     }
 
@@ -86,7 +86,7 @@ impl ByteSource for FileSource {
         }
     }
 
-    fn identity(&self) -> SourceIdentity {
+    fn identity(&self) -> ContentIdentity {
         self.identity.clone()
     }
 }
@@ -140,12 +140,12 @@ impl ByteSink for FileSink {
 /// still reads member ranges instead of re-decompressing the whole stream.
 pub struct SliceSource {
     bytes: Vec<u8>,
-    identity: SourceIdentity,
+    identity: ContentIdentity,
 }
 
 impl SliceSource {
     pub(crate) fn new(label: impl Into<String>, bytes: Vec<u8>) -> Self {
-        let identity = SourceIdentity::new(label.into()).with_content_digest(acorn_source::content_digest_of(&bytes));
+        let identity = ContentIdentity::new(label.into()).with_content_digest(boost_source::binary::content_digest_of(&bytes));
         Self { bytes, identity }
     }
 
@@ -183,7 +183,7 @@ impl ByteSource for SliceSource {
         }
     }
 
-    fn identity(&self) -> SourceIdentity {
+    fn identity(&self) -> ContentIdentity {
         self.identity.clone()
     }
 }
@@ -202,7 +202,7 @@ impl ByteSource for &FileSource {
         (**self).capabilities()
     }
 
-    fn identity(&self) -> SourceIdentity {
+    fn identity(&self) -> ContentIdentity {
         (**self).identity()
     }
 }
