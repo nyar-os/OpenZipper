@@ -2,8 +2,8 @@
 
 Platform package for the `open-zipper` native addon on Linux x64.
 
-The `*.node` binary is produced by `scripts/build-napi.ts` and copied here by
-`scripts/stage-native.ts`. It is not committed. Build before publishing:
+The `*.node` binary is produced by `wae native build` and copied here by
+`wae native stage`. It is not committed. Build before publishing:
 
 ```bash
 pnpm run build:napi

@@ -54,7 +54,7 @@ jobs:
           node-version: "24"
           package-manager-cache: false
       - name: Build and stage the native addon
-        run: node --experimental-strip-types scripts/build-napi.ts ${{ matrix.target }}
+        run: npx -y -p @wae/wae@0.0.6 wae native build --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:
           name: node-${{ matrix.target }}
