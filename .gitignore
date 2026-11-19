@@ -30,3 +30,6 @@ packages/open-zipper-ui/.cache/
 
 # Build staging
 packages/open-zipper/dist/
+
+# npm secrets (nifty)
+.secrets/
