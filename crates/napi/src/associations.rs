@@ -36,6 +36,7 @@ pub struct AssociationStatus {
 
 /// Normalizes one user-supplied extension: lowercase, exactly one leading dot,
 /// only `[a-z0-9.]` after it. Rejects traversal-ish or empty shapes.
+#[cfg(any(target_os = "windows", test))]
 pub fn normalize_extension(raw: &str) -> Result<String> {
     let trimmed = raw.trim().to_ascii_lowercase();
     let without = trimmed.strip_prefix('.').unwrap_or(trimmed.as_str());
@@ -47,6 +48,7 @@ pub fn normalize_extension(raw: &str) -> Result<String> {
 
 /// Normalizes a requested extension list, falling back to all supported ones
 /// when the caller passes nothing. Unknown extensions are rejected.
+#[cfg(any(target_os = "windows", test))]
 pub fn normalize_extensions(requested: &[String]) -> Result<Vec<String>> {
     if requested.is_empty() {
         return Ok(ALL_EXTENSIONS.iter().map(|extension| (*extension).to_string()).collect());
