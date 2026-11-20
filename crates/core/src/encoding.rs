@@ -1,44 +1,30 @@
+//! Entry-name decoding policy for this product.
+//!
+//! The portable candidate ladder (strict UTF-8, then regional decoders, then
+//! CP437) belongs to `data-binary-core`. Only the regional GBK fallback is
+//! product policy: it matches the archives this app's users create on Chinese
+//! Windows, and other locales would pass a different decoder.
+
+use data_binary_core::{NameTerminal, RegionalDecoder, decode_entry_name};
+
 /// Decode an archive entry name from raw bytes.
 ///
 /// Zip writers disagree about the UTF-8 flag: some store UTF-8 without setting
 /// it, older Windows tools store GBK in the same field, and legacy DOS tools use
-/// CP437. The decoder tries strict UTF-8 first, then GBK, then CP437 so Chinese
-/// names round-trip instead of turning into mojibake.
+/// CP437. The shared ladder tries strict UTF-8 first, then GBK here, then CP437
+/// so Chinese names round-trip instead of turning into mojibake.
 pub fn decode_name(raw: &[u8]) -> String {
-    if raw.is_empty() {
-        return String::new();
-    }
-    if let Ok(text) = std::str::from_utf8(raw) {
-        return text.to_string();
-    }
+    decode_entry_name(raw, &[GBK], NameTerminal::Cp437)
+}
+
+/// GBK regional decoder: `None` when the bytes are not valid GBK, so the
+/// ladder continues to the CP437 terminal.
+fn decode_gbk(raw: &[u8]) -> Option<String> {
     let (decoded, _, had_errors) = encoding_rs::GBK.decode(raw);
-    if !had_errors {
-        return decoded.into_owned();
-    }
-    decode_cp437(raw)
+    if had_errors { None } else { Some(decoded.into_owned()) }
 }
 
-/// CP437 mapping for bytes `0x80..=0xFF`.
-const CP437_HIGH: [char; 128] = [
-    'Ç', 'ü', 'é', 'â', 'ä', 'à', 'å', 'ç', 'ê', 'ë', 'è', 'ï', 'î', 'ì', 'Ä', 'Å', 'É', 'æ', 'Æ', 'ô', 'ö', 'ò', 'û', 'ù', 'ÿ', 'Ö', 'Ü', '¢',
-    '£', '¥', '₧', 'ƒ', 'á', 'í', 'ó', 'ú', 'ñ', 'Ñ', 'ª', 'º', '¿', '⌐', '¬', '½', '¼', '¡', '«', '»', '░', '▒', '▓', '│', '┤', '╡', '╢', '╖',
-    '╕', '╣', '║', '╗', '╝', '╜', '╛', '┐', '└', '┴', '┬', '├', '─', '┼', '╞', '╟', '╚', '╔', '╩', '╦', '╠', '═', '╬', '╧', '╨', '╤', '╥', '╙',
-    '╘', '╒', '╓', '╫', '╪', '┘', '┌', '█', '▄', '▌', '▐', '▀', 'α', 'ß', 'Γ', 'π', 'Σ', 'σ', 'µ', 'τ', 'Φ', 'Θ', 'Ω', 'δ', '∞', 'φ', 'ε', '∩',
-    '≡', '±', '≥', '≤', '⌠', '⌡', '÷', '≈', '°', '∙', '·', '√', 'ⁿ', '²', '■', '\u{a0}',
-];
-
-fn decode_cp437(raw: &[u8]) -> String {
-    let mut text = String::with_capacity(raw.len());
-    for &byte in raw {
-        if byte < 0x80 {
-            text.push(char::from(byte));
-        }
-        else {
-            text.push(CP437_HIGH[(byte - 0x80) as usize]);
-        }
-    }
-    text
-}
+const GBK: RegionalDecoder = &decode_gbk;
 
 #[cfg(test)]
 mod tests {
@@ -60,5 +46,10 @@ mod tests {
     fn cp437_is_the_last_resort() {
         // 0x82 is `é` in CP437 and not a valid GBK lead byte pair on its own.
         assert_eq!(decode_name(&[0x82]), "é");
+    }
+
+    #[test]
+    fn empty_names_stay_empty() {
+        assert_eq!(decode_name(&[]), "");
     }
 }

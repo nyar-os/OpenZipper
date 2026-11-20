@@ -2,6 +2,7 @@
 //! the default program". The destination name is a sanitized basename, so the
 //! entry path can never steer the write outside the destination directory.
 
+use data_binary_core::is_reserved_device_name;
 use serde::Serialize;
 
 use std::path::Path;
@@ -11,7 +12,6 @@ use crate::{
     format::{self, ArchiveFormat},
     limits::ArchiveLimits,
     model::EntryKind,
-    safety::is_reserved_device_name,
     sevenz_codec, tar_codec, zip_codec,
 };
 

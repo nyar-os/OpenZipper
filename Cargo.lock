@@ -55,7 +55,7 @@ dependencies = [
 [[package]]
 name = "boost-collection"
 version = "0.1.0"
-source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+source = "git+https://github.com/oovm/rust-boost?rev=57d54113ca7d1195a143aeaf0df20b3dba6c9771#57d54113ca7d1195a143aeaf0df20b3dba6c9771"
 dependencies = [
  "boost-collection-macro",
 ]
@@ -63,7 +63,7 @@ dependencies = [
 [[package]]
 name = "boost-collection-macro"
 version = "0.1.0"
-source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+source = "git+https://github.com/oovm/rust-boost?rev=57d54113ca7d1195a143aeaf0df20b3dba6c9771#57d54113ca7d1195a143aeaf0df20b3dba6c9771"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -73,12 +73,12 @@ dependencies = [
 [[package]]
 name = "boost-console"
 version = "0.1.0"
-source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+source = "git+https://github.com/oovm/rust-boost?rev=57d54113ca7d1195a143aeaf0df20b3dba6c9771#57d54113ca7d1195a143aeaf0df20b3dba6c9771"
 
 [[package]]
 name = "boost-harness"
 version = "0.1.0"
-source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+source = "git+https://github.com/oovm/rust-boost?rev=57d54113ca7d1195a143aeaf0df20b3dba6c9771#57d54113ca7d1195a143aeaf0df20b3dba6c9771"
 dependencies = [
  "boost-console",
  "boost-harness-macro",
@@ -90,7 +90,7 @@ dependencies = [
 [[package]]
 name = "boost-harness-macro"
 version = "0.1.0"
-source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+source = "git+https://github.com/oovm/rust-boost?rev=57d54113ca7d1195a143aeaf0df20b3dba6c9771#57d54113ca7d1195a143aeaf0df20b3dba6c9771"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -100,7 +100,7 @@ dependencies = [
 [[package]]
 name = "boost-math"
 version = "0.1.0"
-source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+source = "git+https://github.com/oovm/rust-boost?rev=57d54113ca7d1195a143aeaf0df20b3dba6c9771#57d54113ca7d1195a143aeaf0df20b3dba6c9771"
 dependencies = [
  "boost-collection",
 ]
@@ -108,7 +108,7 @@ dependencies = [
 [[package]]
 name = "boost-source"
 version = "0.1.0"
-source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+source = "git+https://github.com/oovm/rust-boost?rev=57d54113ca7d1195a143aeaf0df20b3dba6c9771#57d54113ca7d1195a143aeaf0df20b3dba6c9771"
 dependencies = [
  "serde",
 ]
@@ -211,7 +211,7 @@ dependencies = [
 [[package]]
 name = "data-binary-core"
 version = "0.1.0"
-source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+source = "git+https://github.com/oovm/rust-boost?rev=57d54113ca7d1195a143aeaf0df20b3dba6c9771#57d54113ca7d1195a143aeaf0df20b3dba6c9771"
 dependencies = [
  "boost-harness",
 ]
@@ -219,7 +219,7 @@ dependencies = [
 [[package]]
 name = "data-binary-tar"
 version = "0.1.0"
-source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+source = "git+https://github.com/oovm/rust-boost?rev=57d54113ca7d1195a143aeaf0df20b3dba6c9771#57d54113ca7d1195a143aeaf0df20b3dba6c9771"
 dependencies = [
  "boost-source",
  "data-binary-core",
@@ -229,7 +229,7 @@ dependencies = [
 [[package]]
 name = "data-binary-zip"
 version = "0.1.0"
-source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+source = "git+https://github.com/oovm/rust-boost?rev=57d54113ca7d1195a143aeaf0df20b3dba6c9771#57d54113ca7d1195a143aeaf0df20b3dba6c9771"
 dependencies = [
  "boost-source",
  "data-binary-core",
@@ -240,16 +240,15 @@ dependencies = [
 [[package]]
 name = "data-checksum"
 version = "0.1.0"
-source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+source = "git+https://github.com/oovm/rust-boost?rev=57d54113ca7d1195a143aeaf0df20b3dba6c9771#57d54113ca7d1195a143aeaf0df20b3dba6c9771"
 
 [[package]]
 name = "data-compression"
 version = "0.1.0"
-source = "git+https://github.com/oovm/rust-boost?rev=37fee59efe65e8767f99dc0039a92fd797cedcb8#37fee59efe65e8767f99dc0039a92fd797cedcb8"
+source = "git+https://github.com/oovm/rust-boost?rev=57d54113ca7d1195a143aeaf0df20b3dba6c9771#57d54113ca7d1195a143aeaf0df20b3dba6c9771"
 dependencies = [
  "data-binary-core",
  "data-checksum",
- "ruzstd",
 ]
 
 [[package]]
@@ -709,15 +708,6 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
-
-[[package]]
-name = "ruzstd"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69e4ce4a039f42bf25920b95667e4d789e98749ab11bbb8d2c2936f788421bb5"
-dependencies = [
- "twox-hash",
-]
 
 [[package]]
 name = "scopeguard"

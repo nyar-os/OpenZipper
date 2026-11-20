@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use data_binary_core::{PathViolation, validate_portable_path};
 use serde::Serialize;
 
 use crate::{
@@ -28,33 +29,19 @@ impl SafeEntryPath {
 ///
 /// This runs before any file or directory is created for the entry.
 pub fn validate_entry_path(name: &str, platform: Platform) -> Result<SafeEntryPath> {
-    if name.is_empty() {
-        return Err(Error::coded(ErrorCode::ZipSlip, "archive entry has an empty name"));
-    }
-    if name.chars().any(|character| character == '\0' || (character.is_control() && character != '\t')) {
-        return Err(Error::coded(ErrorCode::ZipSlip, format!("archive entry `{name}` contains control characters")));
-    }
+    // Portable rules (separator unification, traversal, absoluteness, control
+    // characters and reserved device names) are owned by `data-binary-core`.
+    let portable = validate_portable_path(name, platform == Platform::Windows)
+        .map_err(|violation| Error::coded(ErrorCode::ZipSlip, describe_violation(name, violation)))?;
 
-    // Backslashes are separators on Windows archives even when they are stored
-    // verbatim. Normalizing here prevents `..\evil.txt` from slipping through.
-    let unified = name.replace('\\', "/");
-    if unified.starts_with('/') {
-        return Err(Error::coded(ErrorCode::ZipSlip, format!("archive entry `{name}` is an absolute path")));
-    }
-    let bytes = unified.as_bytes();
+    // Host policy stays here: only this app knows which filesystems the
+    // destination may touch.
+    let bytes = name.replace('\\', "/").into_bytes();
     if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
         return Err(Error::coded(ErrorCode::ZipSlip, format!("archive entry `{name}` uses a drive-letter prefix")));
     }
-
-    let mut components = Vec::new();
-    for component in unified.split('/') {
-        if component.is_empty() || component == "." {
-            continue;
-        }
-        if component == ".." {
-            return Err(Error::coded(ErrorCode::ZipSlip, format!("archive entry `{name}` contains a parent traversal segment")));
-        }
-        if platform == Platform::Windows {
+    if platform == Platform::Windows {
+        for component in &portable.components {
             if component.contains(':') {
                 return Err(Error::coded(
                     ErrorCode::ZipSlip,
@@ -64,24 +51,16 @@ pub fn validate_entry_path(name: &str, platform: Platform) -> Result<SafeEntryPa
             // Windows strips trailing dots and spaces from path components, so
             // `CON.`, `evil.` and `name ` would all resolve to a different name
             // than the archive declares.
-            let trimmed = component.trim_end_matches(['.', ' ']);
-            if trimmed != component {
+            if component.trim_end_matches(['.', ' ']) != component {
                 return Err(Error::coded(
                     ErrorCode::ZipSlip,
                     format!("archive entry `{name}` relies on Windows trailing dot or space normalization"),
                 ));
             }
-            if is_reserved_device_name(component) {
-                return Err(Error::coded(ErrorCode::ZipSlip, format!("archive entry `{name}` uses the reserved device name `{component}`")));
-            }
         }
-        components.push(component.to_string());
     }
 
-    if components.is_empty() {
-        return Err(Error::coded(ErrorCode::ZipSlip, format!("archive entry `{name}` resolves to the destination root")));
-    }
-
+    let components = portable.components;
     let normalized_key = if platform.case_insensitive_paths() {
         components.iter().map(|component| component.to_lowercase()).collect::<Vec<_>>().join("/")
     }
@@ -93,13 +72,15 @@ pub fn validate_entry_path(name: &str, platform: Platform) -> Result<SafeEntryPa
     Ok(SafeEntryPath { components, relative, normalized_key })
 }
 
-pub(crate) fn is_reserved_device_name(component: &str) -> bool {
-    let base = component.split('.').next().unwrap_or(component).trim().to_ascii_uppercase();
-    matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$")
-        || (base.len() == 4
-            && (base.starts_with("COM") || base.starts_with("LPT"))
-            && base.as_bytes()[3].is_ascii_digit()
-            && base.as_bytes()[3] != b'0')
+fn describe_violation(name: &str, violation: PathViolation) -> String {
+    match violation {
+        PathViolation::Empty => "archive entry has an empty name".to_string(),
+        PathViolation::ControlCharacter => format!("archive entry `{name}` contains control characters"),
+        PathViolation::Absolute => format!("archive entry `{name}` is an absolute path"),
+        PathViolation::ParentTraversal => format!("archive entry `{name}` contains a parent traversal segment"),
+        PathViolation::ReservedDeviceName { component } => format!("archive entry `{name}` uses the reserved device name `{component}`"),
+        PathViolation::ResolvesToRoot => format!("archive entry `{name}` resolves to the destination root"),
+    }
 }
 
 /// Ensure a destination path stays inside `destination` after validation.
