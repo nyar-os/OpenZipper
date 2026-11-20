@@ -129,7 +129,7 @@ pub fn set(extensions: &[String], enabled: bool, node_path: &str, script_path: &
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (extensions, enabled, node_path, script_path, icon_path);
-        return Err(unsupported());
+        Err(unsupported())
     }
     #[cfg(target_os = "windows")]
     {

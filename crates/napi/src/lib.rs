@@ -57,6 +57,8 @@ struct GuiState {
 }
 
 /// What `openGui` did: open a fresh host or focus the live one.
+// The opened variant owns the host once; boxing it would only add an allocation.
+#[allow(clippy::large_enum_variant)]
 enum GuiOpenAction {
     Opened(GuiState),
     Focused { backend: &'static str, uptime_ms: u64 },
