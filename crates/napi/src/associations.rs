@@ -9,7 +9,9 @@
 
 use serde::Serialize;
 
-use open_zipper_core::{CapabilityState, Error as CoreError, ErrorCode, Platform, Result};
+#[cfg(any(target_os = "windows", test))]
+use open_zipper_core::ErrorCode;
+use open_zipper_core::{CapabilityState, Error as CoreError, Platform, Result};
 
 /// The single ProgID this app owns.
 pub const PROG_ID: &str = "OpenZipper.Archive";

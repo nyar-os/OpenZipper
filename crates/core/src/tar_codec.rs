@@ -5,9 +5,9 @@ use std::{
     path::Path,
 };
 
-use data_compression::CodecLimits;
-use data_binary_tar::{StreamChunk, TarArchive, TarEntry, TarEntryKind, TarGzEntry, TarGzError, TarGzStream, TarIndexError, index_tar};
 use bzip2::read::BzDecoder;
+use data_binary_tar::{StreamChunk, TarArchive, TarEntry, TarEntryKind, TarGzEntry, TarGzError, TarGzStream, TarIndexError, index_tar};
+use data_compression::CodecLimits;
 use xz2::read::XzDecoder;
 
 use crate::{

@@ -5,8 +5,8 @@ use std::{
     path::Path,
 };
 
-use data_compression::{CodecLimits, StreamChunk};
 use data_binary_zip::{ZipIndexError, ZipMember, ZipMemberStream, ZipViewError, index_zip};
+use data_compression::{CodecLimits, StreamChunk};
 
 use crate::{
     encoding::decode_name,

@@ -6,9 +6,9 @@ use std::{
 };
 
 use boost_source::binary::WriteError;
+use bzip2::{Compression as BzCompression, write::BzEncoder};
 use data_binary_tar::{TarEntryDraft, TarGz, TarWriter};
 use data_binary_zip::{ZipDateTime, ZipDosDateTime, ZipStreamEntry, ZipStreamWriter, ZipWriteError};
-use bzip2::{Compression as BzCompression, write::BzEncoder};
 use xz2::write::XzEncoder;
 
 use crate::{
