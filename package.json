@@ -3,8 +3,18 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.28.0",
-  "description": "OpenZipper workspace (crates = Rust, packages = TypeScript)",
+  "description": "OpenZipper workspace: zip, 7z, and tar-family archive tool",
   "license": "Apache-2.0",
+  "keywords": [
+    "archive",
+    "zip",
+    "tar",
+    "wae"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nyar-os/OpenZipper.git"
+  },
   "scripts": {
     "build:napi": "wae native build",
     "build:ts": "pnpm --filter @wae/open-zipper run build",
