@@ -66,6 +66,7 @@ pub fn normalize_extensions(requested: &[String]) -> Result<Vec<String>> {
 
 /// Builds the `shell\open\command` value. Each path is wrapped in quotes; the
 /// `%1` placeholder is quoted too so names with spaces survive the handoff.
+#[cfg(any(target_os = "windows", test))]
 pub fn open_command(node_path: &str, script_path: &str) -> String {
     format!("\"{node_path}\" \"{script_path}\" gui --open \"%1\"")
 }
@@ -119,12 +120,19 @@ pub fn status() -> Result<AssociationStatus> {
 /// returns the fresh status. Unregistering also prunes the shared ProgID when
 /// no requested extension still references it.
 pub fn set(extensions: &[String], enabled: bool, node_path: &str, script_path: &str, icon_path: &str) -> Result<AssociationStatus> {
-    if Platform::current() != Platform::Windows {
+    // Registry writes only exist on Windows; keep the other hosts on the same
+    // explicit `UnsupportedPlatform` contract instead of compiling a dead tail.
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (extensions, enabled, node_path, script_path, icon_path);
         return Err(unsupported());
     }
-    let targets = normalize_extensions(extensions)?;
     #[cfg(target_os = "windows")]
     {
+        if Platform::current() != Platform::Windows {
+            return Err(unsupported());
+        }
+        let targets = normalize_extensions(extensions)?;
         for extension in &targets {
             if enabled {
                 win::register(extension, node_path, script_path, icon_path)?;
@@ -136,13 +144,8 @@ pub fn set(extensions: &[String], enabled: bool, node_path: &str, script_path: &
         if !enabled {
             win::prune_progid_if_unused(&targets)?;
         }
+        status()
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = (targets, node_path, script_path, icon_path);
-        return Err(unsupported());
-    }
-    status()
 }
 
 #[cfg(target_os = "windows")]
